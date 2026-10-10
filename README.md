@@ -97,7 +97,7 @@ msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
 1. 启动 `UnlockerGUI.exe`，选择游戏可执行文件。
 2. 按需启用功能并点击启动；GUI 会将设置写入运行时目录内的 `Plugins/config.ini`。
 3. 随身合成与随身烹饪仅在游戏窗口前台时监听热键，热键请求会转发到游戏主线程执行，并使用 500ms 防抖。
-4. 首次使用随身烹饪后，可使用 GUI 的特征码诊断确认 `AutoCook` 是否处于可用状态。
+4. 可使用 GUI 的特征码诊断确认功能是否处于可用状态。
 
 ## 配置说明
 

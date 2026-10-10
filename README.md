@@ -1,5 +1,7 @@
 # SimpleUnlocker
 
+> 本项目基于原始 [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker) 二次开发；随身烹饪及部分注入/Hook 实现进一步衍生自 FufuLauncher.UnlockerIsland，完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
 从 [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland) 剥离出的**精简版**，专注体验优化：
 
 - **FPS 解锁**（解除游戏帧率上限，目标可调）

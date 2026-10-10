@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>UnlockerGUI</RootNamespace>
+    <AssemblyName>UnlockerGUI</AssemblyName>
+
+    <!-- 发布：单文件 exe，不依赖系统装 .NET 运行时（自包含）-->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- 不生成独立的 pdb/xml 文件，保持目录干净 -->
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      直接嵌入本次原生编译产物，避免 exec 中残留的旧 DLL 被悄悄打进发布包。
+      SimpleUnlocker.sln 已声明 GUI 依赖两个原生项目，构建解决方案时会先生成它们。
+    -->
+    <EmbeddedResource Include="..\build\Launcher.dll" LogicalName="Bundled.Launcher.dll" />
+    <EmbeddedResource Include="..\build\SimpleUnlocker.dll" LogicalName="Bundled.SimpleUnlocker.dll" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,9 @@
 # Third-party notices
 
+## Original LiteUnlocker
+
+This project is a modified derivative of [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker). Its source-level attribution and the modifications made by this repository are documented in [README.md](README.md).
+
 ## FufuLauncher.UnlockerIsland
 
 Copyright (c) FufuLauncher Dev Team. Portions of this project, including the portable cooking implementation and related hook/pattern logic, are derived from [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland).

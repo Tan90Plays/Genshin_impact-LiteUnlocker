@@ -1,5 +1,7 @@
 # LiteUnlocker
 
+当前发布版本：**1.0.1**
+
 > 本项目基于原始 [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker) 二次开发。随身烹饪及部分注入 / Hook 实现进一步衍生自 [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland)；完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 这是一个以本地体验调整为目标的原 LiteUnlocker 衍生版本，提供：
@@ -55,6 +57,12 @@ LiteUnlocker_src/
 ```
 
 构建输出 `build/`、`UnlockerGUI/bin/`、`UnlockerGUI/obj/` 均为可再生成文件，已被 Git 忽略，不属于源码。
+
+## 1.0.1 更新
+
+- 修复游戏 7.0 更新后隐藏 UID 失效的问题。
+- 同步原 LiteUnlocker v1.4.0 与 FufuLauncher.UnlockerIsland 的国服/国际服 `SetActive` 偏移。
+- 调用固定偏移前验证可执行内存与函数头；游戏后续更新导致偏移失配时，会安全停用隐藏 UID，而不是调用未知地址。
 
 ## 编译
 

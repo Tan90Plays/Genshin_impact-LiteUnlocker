@@ -123,12 +123,40 @@ namespace Hooks {
     static const char* PAT_OpenTeamPage  = "56 57 53 48 83 ec 20 89 cb 80 3d ? ? ? ? 00 74 7a 80 3d ? ? ? ? 00 48 8b 05";
     static const char* PAT_EventCamera   = "41 57 41 56 56 57 55 53 48 83 EC 48 48 89 D7 49 89 CE 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 80";
     static const uintptr_t OS_EventCameraOffset = 0x70D9930;
-    static const uintptr_t SetActiveOffset = 0x13D8580;
 
     // UI 对象操作特征码（绝对地址）
     static const char* PAT_FindString     = "56 48 83 ec 20 48 89 ce e8 ? ? ? ? 48 89 f1 89 c2 48 83 c4 20 5e e9 ? ? ? ? cc cc cc cc";
     static const char* PAT_FindGameObject = "40 53 48 83 EC ? 48 89 4C 24 ? 48 8D 54 24 ? 48 8D 4C 24 ? E8 ? ? ? ? 48 8B 08 48 85 C9 75 ? 48 8D 48 ? E8 ? ? ? ? 48 8B 4C 24 ? 48 8B D8 48 85 C9 74 ? 48 83 7C 24 ? 00 76";
-    static const char* PAT_SetActive      = "E8 ? ? ? ? 48 8B 56 ? 48 85 D2 0F 84 ? ? ? ? 80 3D ? ? ? ? 0 0F 85 ? ? ? ? 48 89 D1 E8 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 48 89 C1";
+    // 7.0 起旧 SetActive 调用点特征码已失效，按服务器版本使用上游确认的偏移。
+    // 来源：LiteUnlocker v1.4.0 / FufuLauncher.UnlockerIsland 当前 master。
+    static const uintptr_t OFFSET_SET_ACTIVE_CN = 0x1452EE0;
+    static const uintptr_t OFFSET_SET_ACTIVE_OS = 0x1451EE0;
+
+    // 固定偏移会随游戏版本变化。调用前校验内存页和函数头，避免把失效偏移
+    // 当作函数执行；校验失败时只停用隐藏 UID，不影响其他功能。
+    static bool IsExpectedSetActive(void* address) {
+        if (!address) return false;
+
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(address, &mbi, sizeof(mbi)) ||
+            mbi.State != MEM_COMMIT ||
+            (mbi.Protect & PAGE_GUARD) ||
+            !(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                             PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) {
+            return false;
+        }
+
+        const uintptr_t begin = reinterpret_cast<uintptr_t>(address);
+        const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+        if (begin > end || end - begin < 16) return false;
+
+        const auto* p = static_cast<const unsigned char*>(address);
+        // 7.x SetActive: 48 89 5C 24 ?? 57 48 83 EC 20 0F B6 FA 48 8B D9
+        return p[0] == 0x48 && p[1] == 0x89 && p[2] == 0x5C && p[3] == 0x24 &&
+               p[5] == 0x57 && p[6] == 0x48 && p[7] == 0x83 && p[8] == 0xEC &&
+               p[9] == 0x20 && p[10] == 0x0F && p[11] == 0xB6 && p[12] == 0xFA &&
+               p[13] == 0x48 && p[14] == 0x8B && p[15] == 0xD9;
+    }
 
     // 视觉效果特征码
     // DisplayFog：绝对地址（HOOK_DIR），雾参数处理函数
@@ -491,20 +519,26 @@ namespace Hooks {
             p_FindGameObject = reinterpret_cast<tFindGameObject>(scanFindObj);
             std::cout << "[Unlocker] [OK] FindGameObject resolved\n";
         }
-        void* setActiveAddr = reinterpret_cast<void*>(
-            reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr)) + SetActiveOffset);
-        if (setActiveAddr) {
-            p_SetActive = reinterpret_cast<tSetActive>(setActiveAddr);
-            std::cout << "[Unlocker] [OK] SetActive resolved via offset\n";
-        } else {
-            void* scanSetActive = Scanner::ScanMainMod(PAT_SetActive);
-            if (scanSetActive) {
-                // SetActive 特征码是 E8 相对调用型，需解析
-                void* target = Scanner::ResolveRelative(scanSetActive, 1, 5);
-                if (target) {
-                    p_SetActive = reinterpret_cast<tSetActive>(target);
-                    std::cout << "[Unlocker] [OK] SetActive resolved via signature\n";
-                }
+        {
+            char modulePath[MAX_PATH] = {};
+            GetModuleFileNameA(nullptr, modulePath, MAX_PATH);
+            std::string lowerPath = modulePath;
+            std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+            const bool isOS = lowerPath.find("genshinimpact.exe") != std::string::npos;
+            const uintptr_t offset = isOS ? OFFSET_SET_ACTIVE_OS : OFFSET_SET_ACTIVE_CN;
+            const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
+            void* setActiveAddr = base ? reinterpret_cast<void*>(base + offset) : nullptr;
+
+            if (IsExpectedSetActive(setActiveAddr)) {
+                p_SetActive = reinterpret_cast<tSetActive>(setActiveAddr);
+                std::cout << "[Unlocker] [OK] SetActive resolved via validated offset 0x"
+                          << std::hex << offset << std::dec
+                          << (isOS ? " (OS)" : " (CN)") << "\n";
+            } else {
+                p_SetActive = nullptr;
+                std::cout << "[Unlocker] [WARN] SetActive offset does not match this game version; HideUID disabled\n";
             }
         }
 
@@ -579,7 +613,7 @@ namespace Hooks {
         RecordDiag("EventCamera",      "移除大招动画",     eventCameraHookCreated && hooksEnabled, "偏移/绝对地址");
         RecordDiag("FindString",       "隐藏UID",         p_FindString != nullptr,    "绝对地址(引擎函数)");
         RecordDiag("FindGameObject",   "隐藏UID",         p_FindGameObject != nullptr,"绝对地址(引擎函数)");
-        RecordDiag("SetActive",        "隐藏UID",         p_SetActive != nullptr,     "偏移/相对调用(引擎函数)");
+        RecordDiag("SetActive",        "隐藏UID",         p_SetActive != nullptr,     "已验证固定offset(引擎函数)");
         RecordDiag("DisplayFog",       "关闭场景雾效",     displayFogHookCreated && hooksEnabled, "绝对地址");
         RecordDiag("PlayerPerspective","关闭角色半透明",   playerPerspectiveHookCreated && hooksEnabled, "相对调用(E8)");
         RecordDiag("CraftPartner",     "随身合成台",       p_CraftPartner != nullptr,    "绝对地址");

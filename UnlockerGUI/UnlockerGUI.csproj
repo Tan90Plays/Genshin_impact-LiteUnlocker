@@ -8,6 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>UnlockerGUI</RootNamespace>
     <AssemblyName>UnlockerGUI</AssemblyName>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- 发布：单文件 exe，不依赖系统装 .NET 运行时（自包含）-->
     <PublishSingleFile>true</PublishSingleFile>

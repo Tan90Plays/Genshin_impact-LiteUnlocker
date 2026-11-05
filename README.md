@@ -1,6 +1,6 @@
 # LiteUnlocker
 
-当前发布版本：**1.0.1**
+当前源码版本：**1.1.0**（7.2 适配候选；实机验证状态见下文）
 
 > 本项目基于原始 [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker) 二次开发。随身烹饪及部分注入 / Hook 实现进一步衍生自 [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland)；完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -57,6 +57,13 @@ LiteUnlocker_src/
 ```
 
 构建输出 `build/`、`UnlockerGUI/bin/`、`UnlockerGUI/obj/` 均为可再生成文件，已被 Git 忽略，不属于源码。
+
+## 1.1.0 更新
+
+- 对照 FufuLauncher.UnlockerIsland 的 7.2 源码，更新国服和国际服 `SetActive` 偏移及国际服 `EventCamera` 偏移，增加入口校验。
+- 队伍过渡动画改为 7.2 的 `MoveNext` 协程 Hook，保留原生页面就绪判断，只在已就绪时临时缩短动画。
+- 烹饪特征码与 Fufu 7.2 相同。LiteUnlocker 没有针对秘境或挑战主动拦截烹饪热键；本版不改动烹饪逻辑。
+- 详细适配范围和验证状态见 [1.1.0 更新说明](RELEASE_NOTES-v1.1.0.md)。
 
 ## 1.0.1 更新
 
@@ -142,6 +149,7 @@ msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
 
 - 所有特征码都与特定游戏版本相关；更新后功能可能不可用，诊断窗口会显示扫描结果。
 - 随身合成台与随身烹饪均涉及游戏交互，风险显著高于纯 FPS/FOV 配置。
+- 当前工作区没有与 7.2 完全同构建的国服或国际服游戏 EXE，尚未完成特征码命中、运行时 Hook 和秘境烹饪测试；编译成功不等于实机兼容。
 - GUI 不会保证绕过反作弊检测，也不保证功能在所有系统或游戏版本中稳定工作。
 
 ## 许可证与第三方声明

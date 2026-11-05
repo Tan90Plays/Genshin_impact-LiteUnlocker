@@ -18,7 +18,10 @@
 #include <type_traits>
 #include <atomic>
 #include <algorithm>
+#include <iterator>
 #include <cctype>
+#include <cmath>
+#include <Psapi.h>
 
 #include "MinHook.h"
 #include "Scanner.h"
@@ -38,9 +41,8 @@ namespace Hooks {
     typedef int32_t (WINAPI* tSetSyncCount)(bool);      // 关闭垂直同步
 
     // ===== 队伍界面相关（移除切换动画）=====
-    typedef void (WINAPI* tOpenTeam)();          // 打开队伍（被 hook 的入口）
-    typedef bool (WINAPI* tCheckCanEnter)();      // 检查当前能否进入队伍
-    typedef void (WINAPI* tOpenTeamPage)(bool);   // 直接打开队伍页面（跳过动画）
+    // 7.2: 队伍过渡协程 MoveNext，而非旧版无参打开入口。
+    typedef bool (WINAPI* tOpenTeam)(void*, void*);
     typedef bool (WINAPI* tEventCamera)(void*, void*); // 大招/事件镜头控制
 
     // ===== UI 对象操作（隐藏 UID 等）=====
@@ -70,10 +72,8 @@ namespace Hooks {
     static tChangeFov     o_ChangeFov     = nullptr;
     static tSetSyncCount  o_SetSyncCount  = nullptr;
 
-    // 队伍界面相关：OpenTeam 被 hook（o_ 存原始地址），另两个只扫描拿地址（p_）
+    // 队伍界面相关：OpenTeam 协程被 hook（o_ 存原始地址）
     static tOpenTeam       o_OpenTeam      = nullptr;
-    static tCheckCanEnter  p_CheckCanEnter = nullptr;
-    static tOpenTeamPage   p_OpenTeamPage  = nullptr;
     static tEventCamera    o_EventCamera   = nullptr;
 
     // UI 对象操作：只扫描拿地址（隐藏 UID 用，不 hook）
@@ -110,32 +110,44 @@ namespace Hooks {
     // 改变 cfg.fov_value 后，g_CurrentFov 每帧朝它逼近一点，实现丝滑过渡。
     static float g_CurrentFov = 45.0f;
 
-    // 游戏特征码（与原仓库 Patterns.h 完全一致）
-    // 理论上原神 7.0 之前版本可用，游戏更新后可能需要重新逆向
+    // FufuLauncher.UnlockerIsland 7.2 (2de496a) 的共同特征码。
     static const char* PAT_GetFrameCount = "E8 ? ? ? ? 85 C0 7E 0E E8 ? ? ? ? 0F 57 C0 F3 0F 2A C0 EB 08";
     static const char* PAT_SetFrameCount = "E8 ? ? ? ? E8 ? ? ? ? 83 F8 1F 0F 9C 05 ? ? ? ? 48 8B 05";
     static const char* PAT_ChangeFOV     = "40 53 48 83 EC 60 0F 29 74 24 ? 48 8B D9 0F 28 F1 E8 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? E8 ? ? ? ? 48 8B C8";
     static const char* PAT_SetSyncCount  = "E8 ? ? ? ? E8 ? ? ? ? 89 C6 E8 ? ? ? ? 31 C9 89 F2 49 89 C0 E8 ? ? ? ? 48 89 C6 48 8B 0D ? ? ? ? 80 B9 ? ? ? ? ? 74 47 48 8B 3D ? ? ? ? 48 85 DF 74 4C";
 
-    // 队队界面相关特征码（均为绝对地址，直接指向函数开头，无需 ResolveRelative）
-    static const char* PAT_OpenTeam      = "48 83 EC 28 80 3D ? ? ? ? 00 75 ? 48 8B 0D ? ? ? ? 80 B9 C7 00 00 00 00 74 ? B9 0C 00 00 00 E8 ? ? ? ? 84 C0 74";
-    static const char* PAT_CheckCanEnter = "56 48 81 ec 80 00 00 00 80 3d ? ? ? ? 00 0f 84 ? ? ? ? 80 3d ? ? ? ? 00";
-    static const char* PAT_OpenTeamPage  = "56 57 53 48 83 ec 20 89 cb 80 3d ? ? ? ? 00 74 7a 80 3d ? ? ? ? 00 48 8b 05";
+    // 7.2 队伍过渡协程有国服/国际服两种对象布局。
+    static const char* PAT_OpenTeamCN =
+        "56 57 53 48 83 EC 40 0F 29 74 24 30 48 89 CE 80 3D ? ? ? ? 00 0F 84 ? ? ? ? "
+        "8B 46 20 48 8B 7E 18 83 F8 01 0F 84 ? ? ? ? 85 C0 0F 85 ? ? ? ? "
+        "C7 46 20 FF FF FF FF 48 85 FF";
+    static const char* PAT_OpenTeamOS =
+        "56 57 53 48 83 EC 40 0F 29 74 24 30 48 89 CE 80 3D ? ? ? ? 00 0F 84 ? ? ? ? "
+        "8B 46 20 48 8B 7E 10 83 F8 01 0F 84 ? ? ? ? 85 C0 0F 85 ? ? ? ? "
+        "C7 46 20 FF FF FF FF 48 85 FF";
     static const char* PAT_EventCamera   = "41 57 41 56 56 57 55 53 48 83 EC 48 48 89 D7 49 89 CE 80 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? 80";
-    static const uintptr_t OS_EventCameraOffset = 0x70D9930;
+    static const uintptr_t OS_EventCameraOffset = 0xC5438F0;
 
     // UI 对象操作特征码（绝对地址）
     static const char* PAT_FindString     = "56 48 83 ec 20 48 89 ce e8 ? ? ? ? 48 89 f1 89 c2 48 83 c4 20 5e e9 ? ? ? ? cc cc cc cc";
     static const char* PAT_FindGameObject = "40 53 48 83 EC ? 48 89 4C 24 ? 48 8D 54 24 ? 48 8D 4C 24 ? E8 ? ? ? ? 48 8B 08 48 85 C9 75 ? 48 8D 48 ? E8 ? ? ? ? 48 8B 4C 24 ? 48 8B D8 48 85 C9 74 ? 48 83 7C 24 ? 00 76";
-    // 7.0 起旧 SetActive 调用点特征码已失效，按服务器版本使用上游确认的偏移。
-    // 来源：LiteUnlocker v1.4.0 / FufuLauncher.UnlockerIsland 当前 master。
-    static const uintptr_t OFFSET_SET_ACTIVE_CN = 0x1452EE0;
-    static const uintptr_t OFFSET_SET_ACTIVE_OS = 0x1451EE0;
+    // FufuLauncher.UnlockerIsland 7.2 的固定偏移；调用前还要验证函数头。
+    static const uintptr_t OFFSET_SET_ACTIVE_CN = 0x1463FC0;
+    static const uintptr_t OFFSET_SET_ACTIVE_OS = 0x1464FC0;
 
     // 固定偏移会随游戏版本变化。调用前校验内存页和函数头，避免把失效偏移
     // 当作函数执行；校验失败时只停用隐藏 UID，不影响其他功能。
-    static bool IsExpectedSetActive(void* address) {
+    static bool IsExecutableMainModuleAddress(void* address, size_t length) {
         if (!address) return false;
+
+        HMODULE module = GetModuleHandleA(nullptr);
+        MODULEINFO image{};
+        if (!module || !GetModuleInformation(GetCurrentProcess(), module, &image, sizeof(image)))
+            return false;
+        const auto start = reinterpret_cast<uintptr_t>(image.lpBaseOfDll);
+        const auto target = reinterpret_cast<uintptr_t>(address);
+        if (target < start || length > image.SizeOfImage || target - start > image.SizeOfImage - length)
+            return false;
 
         MEMORY_BASIC_INFORMATION mbi{};
         if (!VirtualQuery(address, &mbi, sizeof(mbi)) ||
@@ -148,7 +160,11 @@ namespace Hooks {
 
         const uintptr_t begin = reinterpret_cast<uintptr_t>(address);
         const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-        if (begin > end || end - begin < 16) return false;
+        return begin <= end && end - begin >= length;
+    }
+
+    static bool IsExpectedSetActive(void* address) {
+        if (!IsExecutableMainModuleAddress(address, 16)) return false;
 
         const auto* p = static_cast<const unsigned char*>(address);
         // 7.x SetActive: 48 89 5C 24 ?? 57 48 83 EC 20 0F B6 FA 48 8B D9
@@ -156,6 +172,17 @@ namespace Hooks {
                p[5] == 0x57 && p[6] == 0x48 && p[7] == 0x83 && p[8] == 0xEC &&
                p[9] == 0x20 && p[10] == 0x0F && p[11] == 0xB6 && p[12] == 0xFA &&
                p[13] == 0x48 && p[14] == 0x8B && p[15] == 0xD9;
+    }
+
+    static bool IsExpectedEventCamera(void* address) {
+        if (!IsExecutableMainModuleAddress(address, 25)) return false;
+        const auto* p = static_cast<const unsigned char*>(address);
+        static constexpr unsigned char prologue[] = {
+            0x41, 0x57, 0x41, 0x56, 0x56, 0x57, 0x55, 0x53,
+            0x48, 0x83, 0xEC, 0x48, 0x48, 0x89, 0xD7, 0x49, 0x89, 0xCE
+        };
+        return std::equal(std::begin(prologue), std::end(prologue), p) &&
+               p[18] == 0x80 && p[19] == 0x3D && p[24] == 0x00;
     }
 
     // 视觉效果特征码
@@ -271,24 +298,36 @@ namespace Hooks {
     }
 
     // =========================================================
-    //  移除队伍切换动画 Hook：OpenTeam
+    //  移除队伍切换动画 Hook：7.2 队伍过渡协程
     // =========================================================
-    // 游戏打开队伍界面时本会播放一段"角色展示"过渡动画。
-    // 开启后直接调用 OpenTeamPage 跳过动画，立即显示队伍页面。
-    void WINAPI hk_OpenTeam() {
-        if (Config::Get().enable_remove_team_anim) {
-            if (p_CheckCanEnter && p_OpenTeamPage) {
-                bool canEnter = false;
-                SafeInvoke([&] { canEnter = p_CheckCanEnter(); });
-                if (canEnter) {
-                    // false = 不播放动画
-                    SafeInvoke([&] { p_OpenTeamPage(false); });
-                    return;
+    // 保留游戏原有的页面就绪等待；只有页面就绪时临时清零动画时长。
+    // 原函数执行后立即恢复字段，避免其它页面沿用修改值。
+    bool WINAPI hk_OpenTeam(void* iterator, void* method) {
+        if (!o_OpenTeam) return false;
+        const bool isOS = GetModuleHandleA("GenshinImpact.exe") != nullptr;
+        float* duration = nullptr;
+        float saved = 0.0f;
+        __try {
+            if (iterator && Config::Get().enable_remove_team_anim) {
+                auto* state = static_cast<unsigned char*>(iterator);
+                auto* owner = *reinterpret_cast<unsigned char**>(state + (isOS ? 0x10 : 0x18));
+                if (owner && *reinterpret_cast<int*>(state + 0x20) == 1 &&
+                    *reinterpret_cast<int*>(owner + (isOS ? 0x1F0 : 0x1DC)) == 0 &&
+                    *reinterpret_cast<int*>(owner + (isOS ? 0x1F8 : 0x1EC)) == 3) {
+                    auto* field = reinterpret_cast<float*>(owner + (isOS ? 0x730 : 0x60C));
+                    const float elapsed = *reinterpret_cast<float*>(owner + (isOS ? 0x638 : 0x67C));
+                    if (std::isfinite(*field) && *field >= 0 && std::isfinite(elapsed) && elapsed >= 0) {
+                        saved = *field;
+                        duration = field;
+                        *duration = 0.0f;
+                    }
                 }
             }
-        }
-        // 功能关闭或无法跳过时，走原始流程
-        if (o_OpenTeam) SafeInvoke(o_OpenTeam);
+        } __except (EXCEPTION_EXECUTE_HANDLER) { duration = nullptr; }
+        bool result = false;
+        __try { result = o_OpenTeam(iterator, method); }
+        __finally { if (duration) *duration = saved; }
+        return result;
     }
 
     // =========================================================
@@ -392,6 +431,13 @@ namespace Hooks {
     bool Init() {
         std::cout << "[Unlocker] 开始初始化 Hooks...\n";
 
+        char exePath[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        std::string lowerPath = exePath;
+        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const bool isOS = lowerPath.find("genshinimpact.exe") != std::string::npos;
+
         if (MH_Initialize() != MH_OK) {
             std::cout << "[Unlocker] [ERR] MH_Initialize 失败\n";
             return false;
@@ -455,20 +501,8 @@ namespace Hooks {
             }
         }
 
-        // --- 5. OpenTeam（移除队伍切换动画）---
-        // 辅助函数：CheckCanEnter、OpenTeamPage（只扫描拿地址，不 hook）
-        void* scanCheck = Scanner::ScanMainMod(PAT_CheckCanEnter);
-        if (scanCheck) {
-            p_CheckCanEnter = reinterpret_cast<tCheckCanEnter>(scanCheck);
-            std::cout << "[Unlocker] [OK] CheckCanEnter resolved\n";
-        }
-        void* scanPage = Scanner::ScanMainMod(PAT_OpenTeamPage);
-        if (scanPage) {
-            p_OpenTeamPage = reinterpret_cast<tOpenTeamPage>(scanPage);
-            std::cout << "[Unlocker] [OK] OpenTeamPage resolved\n";
-        }
-        // 入口函数 OpenTeam（绝对地址 hook）
-        void* scanTeam = Scanner::ScanMainMod(PAT_OpenTeam);
+        // --- 5. OpenTeam（7.2 队伍过渡协程）---
+        void* scanTeam = Scanner::ScanMainMod(isOS ? PAT_OpenTeamOS : PAT_OpenTeamCN);
         if (scanTeam) {
             MH_STATUS status = MH_CreateHook(
                 scanTeam, &hk_OpenTeam, reinterpret_cast<void**>(&o_OpenTeam));
@@ -482,15 +516,13 @@ namespace Hooks {
 
         // --- 5.5. EventCamera（移除大招/事件镜头动画）---
         void* eventCameraAddr = nullptr;
-        char exePath[MAX_PATH] = {};
-        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-        std::string lowerPath = exePath;
-        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (lowerPath.find("genshinimpact.exe") != std::string::npos) {
+        if (isOS) {
             eventCameraAddr = reinterpret_cast<void*>(
                 reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr)) + OS_EventCameraOffset);
-            std::cout << "[Unlocker] [OK] EventCamera resolved via OS offset\n";
+            if (IsExpectedEventCamera(eventCameraAddr))
+                std::cout << "[Unlocker] [OK] EventCamera resolved via validated OS offset\n";
+            else
+                eventCameraAddr = nullptr;
         }
         if (!eventCameraAddr) {
             eventCameraAddr = Scanner::ScanMainMod(PAT_EventCamera);
@@ -498,14 +530,14 @@ namespace Hooks {
                 std::cout << "[Unlocker] [OK] EventCamera resolved via signature\n";
             }
         }
-        if (eventCameraAddr) {
+        if (eventCameraAddr && IsExpectedEventCamera(eventCameraAddr)) {
             MH_STATUS status = MH_CreateHook(
                 eventCameraAddr, &hk_EventCamera, reinterpret_cast<void**>(&o_EventCamera));
             eventCameraHookCreated = status == MH_OK;
             std::cout << (eventCameraHookCreated ? "[Unlocker] [OK] " : "[Unlocker] [ERR] ")
                       << "EventCamera hook: " << MH_StatusToString(status) << "\n";
         } else {
-            std::cout << "[Unlocker] [WARN] 未找到 EventCamera 特征码\n";
+            std::cout << "[Unlocker] [WARN] EventCamera 缺失或函数头不匹配，动画修改已停用\n";
         }
 
         // --- 6. UI 对象操作（隐藏 UID 用，绝对地址，只扫描不 hook）---
@@ -520,13 +552,6 @@ namespace Hooks {
             std::cout << "[Unlocker] [OK] FindGameObject resolved\n";
         }
         {
-            char modulePath[MAX_PATH] = {};
-            GetModuleFileNameA(nullptr, modulePath, MAX_PATH);
-            std::string lowerPath = modulePath;
-            std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-            const bool isOS = lowerPath.find("genshinimpact.exe") != std::string::npos;
             const uintptr_t offset = isOS ? OFFSET_SET_ACTIVE_OS : OFFSET_SET_ACTIVE_CN;
             const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
             void* setActiveAddr = base ? reinterpret_cast<void*>(base + offset) : nullptr;
@@ -608,8 +633,6 @@ namespace Hooks {
         RecordDiag("ChangeFOV",        "FOV修改",         changeFovHookCreated && hooksEnabled, "绝对地址");
         RecordDiag("SetSyncCount",     "FPS解锁(关VSync)", o_SetSyncCount != nullptr,  "相对调用(E8)");
         RecordDiag("OpenTeam",         "移除队伍动画",     openTeamHookCreated && hooksEnabled, "绝对地址");
-        RecordDiag("CheckCanEnter",    "移除队伍动画",     p_CheckCanEnter != nullptr, "绝对地址");
-        RecordDiag("OpenTeamPage",     "移除队伍动画",     p_OpenTeamPage != nullptr,  "绝对地址");
         RecordDiag("EventCamera",      "移除大招动画",     eventCameraHookCreated && hooksEnabled, "偏移/绝对地址");
         RecordDiag("FindString",       "隐藏UID",         p_FindString != nullptr,    "绝对地址(引擎函数)");
         RecordDiag("FindGameObject",   "隐藏UID",         p_FindGameObject != nullptr,"绝对地址(引擎函数)");

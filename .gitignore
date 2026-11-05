@@ -42,3 +42,4 @@ project.lock.json
 !Plugin/MinHook/*.lib
 !Plugin/MinHook/*.h
 dist/
+release-v*/

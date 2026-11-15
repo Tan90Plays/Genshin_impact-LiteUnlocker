@@ -1,14 +1,16 @@
 # LiteUnlocker
 
-当前源码版本：**1.1.0**（7.2 适配候选；实机验证状态见下文）
+当前版本：**1.1.1**。下载：[自包含版](https://github.com/Tan90Plays/Genshin_impact-LiteUnlocker/releases/tag/v1.1.1)或需要 .NET 8 Windows Desktop Runtime 的轻量版。
 
 > 本项目基于原始 [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker) 二次开发。随身烹饪及部分注入 / Hook 实现进一步衍生自 [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland)；完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 这是一个以本地体验调整为目标的原 LiteUnlocker 衍生版本，提供：
 
-- **FPS 解锁**：解除游戏帧率上限，目标值可调。
+- **FPS 解锁**：解除游戏帧率上限，主挡位和备选挡位可调，支持游戏前台快捷键切换。
 - **FOV 修改**：修改摄像机视场角，支持平滑过渡和特殊镜头保护。
 - **移除队伍切换动画**：跳过角色展示，直接打开队伍页面。
+- **秘境内跳转地图**：在已验证的国服 7.2 构建中，允许从秘境内奖励来源跳转地图；默认关闭。
+- **全队技能 CD 显示**：队伍栏显示 E、Q 冷却及充能次数；独立插件，默认关闭。
 - **移除大招动画**：跳过 EventCamera 事件镜头移动。
 - **隐藏 UID 水印**：仅隐藏本地画面中的 UID 水印。
 - **关闭场景雾效 / 角色半透明**：本地视觉效果调整。
@@ -43,20 +45,30 @@ LiteUnlocker_src/
 │   ├── Config.cpp / Config.h       # config.ini 读取与热重载配置
 │   ├── Hooks.cpp / Hooks.h         # FPS、FOV、UI、合成等 Hook
 │   ├── Cooking.cpp / Cooking.h     # 随身烹饪实现（Fufu 衍生）
+│   ├── DomainMap.cpp / .h          # 秘境奖励来源跳转地图
+│   ├── FpsHotkey.cpp / .h          # 帧率切换快捷键
 │   ├── CookingPatterns.h           # 烹饪相关特征码
 │   ├── Scanner.cpp / Scanner.h     # 特征码扫描器
 │   ├── dllmain.cpp                 # DLL 入口与热键监听
 │   ├── config.ini                  # 默认配置示例
 │   ├── SimpleUnlocker.vcxproj
 │   └── MinHook/                    # MinHook 头文件与 x64 静态库
+├── ThirdParty/DisplayCD/           # 技能 CD 插件源码及其许可
 ├── UnlockerGUI/                    # C# WinForms 启动器
 │   ├── Program.cs
+│   ├── LogicHotkeyInput.cs         # 快捷键输入和录制
 │   ├── UnlockerGUI.csproj
 │   └── app.manifest
 └── exec/Plugins/config.ini          # 传统运行目录的配置示例
 ```
 
 构建输出 `build/`、`UnlockerGUI/bin/`、`UnlockerGUI/obj/` 均为可再生成文件，已被 Git 忽略，不属于源码。
+
+## 1.1.1 更新
+
+- 接入[秘境内奖励来源跳转地图](docs/README_DOMAIN_MAP.md)和[全队技能 CD 显示](docs/README_SKILL_CD.md)。用户已在国服 7.2 完成这两项功能的游戏内验证；其他游戏构建仍受版本校验限制。
+- 增加[主/备选 FPS 挡位与切换快捷键](docs/README_FPS_TOGGLE.md)。快捷键只在游戏窗口前台生效，设置保存在 `Plugins/config.ini`。
+- 完整变更及适用范围见[1.1.1 更新说明](RELEASE_NOTES-v1.1.1.md)。
 
 ## 1.1.0 更新
 
@@ -80,27 +92,29 @@ LiteUnlocker_src/
 
 ### 一次性构建全部组件
 
-在“x64 Native Tools Command Prompt for VS 2022”中、从仓库根目录执行：
+在 PowerShell 中从仓库根目录执行：
 
-```cmd
-msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
+```powershell
+.\build-release.ps1
 ```
 
 产物为：
 
 - `build/Launcher.dll`
 - `build/SimpleUnlocker.dll`
-- `UnlockerGUI/bin/x64/Release/net8.0-windows/win-x64/UnlockerGUI.exe`
+- `build/DisplayCD.dll`
+- `dist/LiteUnlocker-v1.1.1-win-x64-self-contained.exe`
+- `dist/LiteUnlocker-v1.1.1-win-x64.exe`
 
 ### 发布 GUI
 
-`UnlockerGUI` 会在构建时内嵌 `build/Launcher.dll` 和 `build/SimpleUnlocker.dll`。首次运行 GUI 时，会自动将它们释放到：
+`UnlockerGUI` 会内嵌三个原生 DLL 和技能 CD 插件默认配置。首次运行 GUI 时，会自动将它们释放到：
 
 ```text
 %LocalAppData%\LiteUnlocker\runtime\
 ```
 
-因此终端用户只需运行 `UnlockerGUI.exe`，不需要手动复制 `Plugins` 目录或 DLL。
+技能 CD 插件位于 `runtime/Plugins/SkillCdDisplayPlugin/`；用户只需运行发布的 EXE。
 
 - 轻量发布版：需要 .NET 8 Windows Desktop Runtime x64。
 - 自包含发布版：不依赖目标机的 .NET 运行时，但文件约 163 MB。
@@ -119,13 +133,16 @@ msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
 | Section | 含义 | 示例值 |
 |---|---|---:|
 | `[FpsUnlock]` | 是否解锁帧率 | 1 |
-| `[TargetFps]` | 目标帧率（GUI 可设至 2000） | 120 |
+| `[TargetFps]` | 当前目标帧率（GUI 可设至 2000） | 120 |
+| `[FpsPrimary]` / `[FpsAlternate]` | 主/备选帧率；备选 0 表示未设置 | 120 / 144 |
+| `[FpsToggleHotkey]` | 游戏前台切换快捷键；留空不绑定 | ctrl+alt+f |
 | `[VSync]` | 关闭垂直同步 | 1 |
 | `[FovUnlock]` | 是否修改 FOV | 1 |
 | `[FovValue]` | 目标 FOV | 60.0 |
 | `[FovTransitionSpeed]` | FOV 平滑过渡速度 | 0.05 |
 | `[FovLimitCheck]` | 仅在 FOV > 30 时覆盖 | 1 |
 | `[RemoveTeamAnim]` | 移除队伍切换动画 | 1 |
+| `[EnableDomainMap]` | 秘境内奖励来源跳转地图；仅指定国服 7.2 构建 | 0 |
 | `[DisableUltimateAnim]` | 移除大招 / 事件镜头动画 | 0 |
 | `[HideUID]` | 隐藏本地 UID 水印 | 1 |
 | `[DisableFog]` | 关闭场景雾效 | 0 |
@@ -137,6 +154,7 @@ msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
 | `[DebugConsole]` | 显示调试控制台 | 0 |
 
 修改运行时 `config.ini` 后，注入插件会自动热重载；不过特征码扫描结果需要重新启动游戏进程后才会重新生成。
+技能 CD 的开关及 E、Q、充能选项另存于 `Plugins/SkillCdDisplayPlugin/config.ini`，插件每约 250 毫秒重读一次。
 
 ## 技术概览
 
@@ -149,7 +167,7 @@ msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
 
 - 所有特征码都与特定游戏版本相关；更新后功能可能不可用，诊断窗口会显示扫描结果。
 - 随身合成台与随身烹饪均涉及游戏交互，风险显著高于纯 FPS/FOV 配置。
-- 当前工作区没有与 7.2 完全同构建的国服或国际服游戏 EXE，尚未完成特征码命中、运行时 Hook 和秘境烹饪测试；编译成功不等于实机兼容。
+- 秘境地图只在指定国服 7.2 EXE 的 SHA-256 和入口特征匹配时启用；技能 CD 插件仅支持其校验通过的国服或国际服 7.2 构建。
 - GUI 不会保证绕过反作弊检测，也不保证功能在所有系统或游戏版本中稳定工作。
 
 ## 许可证与第三方声明
@@ -159,6 +177,7 @@ msbuild SimpleUnlocker.sln /restore /p:Configuration=Release /p:Platform=x64
 - `Plugin/Cooking.cpp`、`Plugin/Cooking.h` 与 `Plugin/CookingPatterns.h` 基于 FufuLauncher 的烹饪自动化实现修改，并保留原始版权声明。
 - `Plugin/Hooks.cpp`、`Plugin/dllmain.cpp` 与部分特征码 / 注入逻辑，修改自原 LiteUnlocker 和 FufuLauncher 的相应实现。
 - `Plugin/MinHook` 使用 [MinHook](https://github.com/TsudaKageyu/minhook)，该第三方组件继续适用其 BSD 2-Clause License。
+- `Plugin/DomainMap.cpp` 改编自 FufuLauncher.UnlockerIsland；`ThirdParty/DisplayCD` 基于 [ChiyukiKazama 的独立源码仓库](https://github.com/ChiyukiKazama/Skill-CD-Display-Plugin-for-FufuLauncher)，内含按 BSD 许可发布的 MinHook 源码。
 
 发布、分发或修改本项目时，请保留上述版权与许可信息，并依 AGPL-3.0 提供对应完整源码。
 

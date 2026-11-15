@@ -28,6 +28,8 @@ internal static class Program
     internal static readonly string RuntimeDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LiteUnlocker", "runtime");
     internal static readonly string PluginsDir = Path.Combine(RuntimeDir, "Plugins");
+    internal static readonly string DisplayCdDir = Path.Combine(PluginsDir, "SkillCdDisplayPlugin");
+    internal static readonly string DisplayCdConfigPath = Path.Combine(DisplayCdDir, "config.ini");
     internal static readonly string LauncherPath = Path.Combine(RuntimeDir, "Launcher.dll");
 
     [STAThread]
@@ -64,9 +66,13 @@ internal static class Program
     {
         Directory.CreateDirectory(RuntimeDir);
         Directory.CreateDirectory(PluginsDir);
+        Directory.CreateDirectory(DisplayCdDir);
 
         ExtractResource("Bundled.Launcher.dll", LauncherPath);
         ExtractResource("Bundled.SimpleUnlocker.dll", Path.Combine(PluginsDir, "SimpleUnlocker.dll"));
+        ExtractResource("Bundled.DisplayCD.dll", Path.Combine(DisplayCdDir, "DisplayCD.dll"));
+        if (!File.Exists(DisplayCdConfigPath))
+            ExtractResource("Bundled.DisplayCD.config.ini", DisplayCdConfigPath);
     }
 
     private static void ExtractResource(string resourceName, string targetPath)
@@ -128,6 +134,12 @@ internal sealed class MainForm : Form
     // ===== 控件 =====
     private readonly TextBox _gamePathBox = new();
     private readonly NumericUpDown _fpsBox = new();
+    private readonly TextBox _fpsAlternateBox = new();
+    private readonly TextBox _fpsHotkeyBox = new();
+    private readonly Label _fpsActiveLabel = new();
+    private int _fpsAlternate;
+    private string _fpsHotkey = "";
+    private bool _fpsActiveAlternate;
     private readonly NumericUpDown _fovBox = new();
     private readonly TrackBar _fovSpeedBar = new();
     private readonly Label _fovSpeedVal = new();
@@ -135,6 +147,11 @@ internal sealed class MainForm : Form
     private readonly CheckBox _enableFov = new();
     private readonly CheckBox _enableVSync = new();
     private readonly CheckBox _enableRemoveTeamAnim = new();
+    private readonly CheckBox _enableDomainMap = new();
+    private readonly CheckBox _enableSkillCd = new();
+    private readonly CheckBox _showSkillCdE = new();
+    private readonly CheckBox _showSkillCdQ = new();
+    private readonly CheckBox _showSkillCdCharges = new();
     private readonly CheckBox _enableHideUid = new();
     private readonly CheckBox _enableRemoveUltimateAnim = new();
     private readonly CheckBox _enableDisableFog = new();
@@ -150,12 +167,16 @@ internal sealed class MainForm : Form
     private Process? _gameProcess;
     private LauncherState _launcherState = LauncherState.Idle;
     private bool _configReady;
+    private DateTime _lastConfigWriteTimeUtc;
 
     public MainForm()
     {
-        Text = "LiteUnlocker 启动器";
+        Text = "LiteUnlocker 1.1.1";
         // 固定客户区尺寸，避免标题栏和 DPI 缩放把底部状态栏裁掉。
-        ClientSize = new Size(544, 750);
+        ClientSize = new Size(562, Math.Min(900, Math.Max(700,
+            (Screen.PrimaryScreen?.WorkingArea.Height ?? 1032) - 64)));
+        AutoScroll = true;
+        AutoScrollMinSize = new Size(544, 930);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -215,7 +236,7 @@ internal sealed class MainForm : Form
         Controls.Add(pathGroup);
 
         // --- FPS ---
-        var fpsGroup = MakeGroup("帧率设置", 18, 166, 508, 72);
+        var fpsGroup = MakeGroup("帧率设置", 18, 166, 508, 142);
         _enableFps.Text = "解锁 FPS";
         _enableFps.Checked = true;
         _enableFps.Left = 16; _enableFps.Top = 31; _enableFps.Width = 100;
@@ -227,10 +248,41 @@ internal sealed class MainForm : Form
         _enableVSync.Checked = true;
         _enableVSync.Left = 340; _enableVSync.Top = 31; _enableVSync.Width = 140;
         fpsGroup.Controls.AddRange(new Control[] { _enableFps, lblFps, _fpsBox, lblFpsUnit, _enableVSync });
+        var altLabel = new Label { Text = "备选：", Left = 145, Top = 66, Width = 44 };
+        _fpsAlternateBox.Left = 190; _fpsAlternateBox.Top = 61; _fpsAlternateBox.Width = 76;
+        _fpsAlternateBox.MaxLength = 4; _fpsAlternateBox.PlaceholderText = "未设置";
+        _fpsAlternateBox.Leave += (_, _) => ApplyFpsAlternate();
+        _fpsAlternateBox.KeyDown += (_, e) => {
+            if (e.KeyCode != Keys.Enter) return;
+            e.SuppressKeyPress = true;
+            ApplyFpsAlternate();
+        };
+        var altUnit = new Label { Text = "FPS", Left = 273, Top = 66, Width = 40 };
+        _fpsActiveLabel.Left = 340; _fpsActiveLabel.Top = 66; _fpsActiveLabel.Width = 145;
+        var hotkeyLabel = new Label { Text = "切换快捷键", Left = 16, Top = 102, Width = 110 };
+        _fpsHotkeyBox.Left = 145; _fpsHotkeyBox.Top = 96; _fpsHotkeyBox.Width = 245;
+        _fpsHotkeyBox.PlaceholderText = "留空表示不绑定";
+        _fpsHotkeyBox.Leave += (_, _) => ApplyFpsHotkey(_fpsHotkeyBox.Text);
+        _fpsHotkeyBox.KeyDown += (_, e) => {
+            if (e.KeyCode != Keys.Enter) return;
+            e.SuppressKeyPress = true;
+            ApplyFpsHotkey(_fpsHotkeyBox.Text);
+        };
+        var recordFps = new Button { Text = "录制", Left = 407, Top = 94, Width = 80, Height = 27 };
+        StyleSecondaryButton(recordFps);
+        recordFps.Click += (_, _) => {
+            string? captured = LogicHotkeyInput.Capture(this, "录制帧率切换快捷键");
+            if (captured != null) ApplyFpsHotkey(captured);
+        };
+        fpsGroup.Controls.AddRange(new Control[] {
+            altLabel, _fpsAlternateBox, altUnit, _fpsActiveLabel,
+            hotkeyLabel, _fpsHotkeyBox, recordFps
+        });
+        UpdateFpsActiveLabel();
         Controls.Add(fpsGroup);
 
         // --- FOV ---
-        var fovGroup = MakeGroup("视角设置", 18, 246, 508, 112);
+        var fovGroup = MakeGroup("视角设置", 18, 316, 508, 112);
         _enableFov.Text = "修改 FOV";
         _enableFov.Checked = true;
         _enableFov.Left = 16; _enableFov.Top = 29; _enableFov.Width = 100;
@@ -261,18 +313,34 @@ internal sealed class MainForm : Form
         Controls.Add(fovGroup);
 
         // --- 体验优化 ---
-        var extraGroup = MakeGroup("体验优化", 18, 366, 508, 62);
+        var extraGroup = MakeGroup("体验优化", 18, 436, 508, 162);
         _enableRemoveTeamAnim.Text = "移除队伍切换动画";
         _enableRemoveTeamAnim.Left = 16; _enableRemoveTeamAnim.Top = 28; _enableRemoveTeamAnim.Width = 170;
         _enableHideUid.Text = "隐藏 UID 水印";
         _enableHideUid.Left = 205; _enableHideUid.Top = 28; _enableHideUid.Width = 130;
         _enableRemoveUltimateAnim.Text = "移除大招动画";
         _enableRemoveUltimateAnim.Left = 350; _enableRemoveUltimateAnim.Top = 28; _enableRemoveUltimateAnim.Width = 140;
-        extraGroup.Controls.AddRange(new Control[] { _enableRemoveTeamAnim, _enableHideUid, _enableRemoveUltimateAnim });
+        _enableDomainMap.Text = "秘境内通过奖励来源跳转地图";
+        _enableDomainMap.Left = 16; _enableDomainMap.Top = 62; _enableDomainMap.Width = 465;
+        _enableSkillCd.Text = "全队技能 CD 显示";
+        _enableSkillCd.Left = 16; _enableSkillCd.Top = 94; _enableSkillCd.Width = 280;
+        _showSkillCdE.Text = "元素战技 E";
+        _showSkillCdE.Left = 16; _showSkillCdE.Top = 126; _showSkillCdE.Width = 125;
+        _showSkillCdE.Checked = true;
+        _showSkillCdQ.Text = "元素爆发 Q";
+        _showSkillCdQ.Left = 170; _showSkillCdQ.Top = 126; _showSkillCdQ.Width = 125;
+        _showSkillCdQ.Checked = true;
+        _showSkillCdCharges.Text = "战技充能次数";
+        _showSkillCdCharges.Left = 325; _showSkillCdCharges.Top = 126; _showSkillCdCharges.Width = 155;
+        _showSkillCdCharges.Checked = true;
+        extraGroup.Controls.AddRange(new Control[] {
+            _enableRemoveTeamAnim, _enableHideUid, _enableRemoveUltimateAnim, _enableDomainMap,
+            _enableSkillCd, _showSkillCdE, _showSkillCdQ, _showSkillCdCharges
+        });
         Controls.Add(extraGroup);
 
         // --- 视觉效果 ---
-        var visualGroup = MakeGroup("视觉效果", 18, 440, 508, 62);
+        var visualGroup = MakeGroup("视觉效果", 18, 610, 508, 62);
         _enableDisableFog.Text = "关闭场景雾效";
         _enableDisableFog.Left = 16; _enableDisableFog.Top = 28; _enableDisableFog.Width = 170;
         _enableDisableCharFade.Text = "关闭角色半透明";
@@ -281,7 +349,7 @@ internal sealed class MainForm : Form
         Controls.Add(visualGroup);
 
         // --- 便利功能（随身合成台）---
-        var craftGroup = MakeGroup("便利功能", 18, 514, 508, 62);
+        var craftGroup = MakeGroup("便利功能", 18, 684, 508, 62);
         _enableRedirectCraft.Text = "随身合成台";
         _enableRedirectCraft.Left = 16; _enableRedirectCraft.Top = 28; _enableRedirectCraft.Width = 130;
         var lblCraftKey = new Label { Text = "热键", Left = 170, Top = 32, Width = 36, Height = 20 };
@@ -295,7 +363,7 @@ internal sealed class MainForm : Form
         Controls.Add(craftGroup);
 
         // --- 随身烹饪 ---
-        var cookGroup = MakeGroup("随身烹饪", 18, 588, 508, 62);
+        var cookGroup = MakeGroup("随身烹饪", 18, 758, 508, 62);
         _enableAutoCook.Text = "快捷打开烹饪界面";
         _enableAutoCook.Left = 16; _enableAutoCook.Top = 28; _enableAutoCook.Width = 160;
         var lblCookKey = new Label { Text = "热键", Left = 190, Top = 32, Width = 36, Height = 20 };
@@ -310,19 +378,19 @@ internal sealed class MainForm : Form
 
         // --- 启动按钮 ---
         _startBtn.Text = "▶  启动游戏";
-        _startBtn.Left = 18; _startBtn.Top = 662; _startBtn.Width = 508; _startBtn.Height = 44;
+        _startBtn.Left = 18; _startBtn.Top = 832; _startBtn.Width = 508; _startBtn.Height = 44;
         _startBtn.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
         StylePrimaryButton();
         _startBtn.Click += OnStart;
 
         // --- 状态栏 ---
-        _statusLabel.Left = 20; _statusLabel.Top = 714; _statusLabel.Width = 410; _statusLabel.Height = 22;
+        _statusLabel.Left = 20; _statusLabel.Top = 884; _statusLabel.Width = 410; _statusLabel.Height = 22;
         _statusLabel.Text = "就绪。";
         _statusLabel.ForeColor = Color.FromArgb(21, 128, 61);
 
         // --- 诊断按钮 ---
         _diagBtn.Text = "特征码诊断";
-        _diagBtn.Left = 438; _diagBtn.Top = 712; _diagBtn.Width = 90; _diagBtn.Height = 26;
+        _diagBtn.Left = 438; _diagBtn.Top = 882; _diagBtn.Width = 90; _diagBtn.Height = 26;
         _diagBtn.Font = new Font("Microsoft YaHei UI", 8.5F);
         StyleSecondaryButton(_diagBtn);
         _diagBtn.Click += OnDiagnose;
@@ -376,15 +444,56 @@ internal sealed class MainForm : Form
         _startBtn.UseVisualStyleBackColor = false;
     }
 
+    private void ApplyFpsAlternate()
+    {
+        string text = _fpsAlternateBox.Text.Trim();
+        if (text.Length > 0 && (!int.TryParse(text, out int value) || value < 30 || value > 2000))
+        {
+            _fpsAlternateBox.Text = _fpsAlternate == 0 ? "" : _fpsAlternate.ToString(CultureInfo.InvariantCulture);
+            SetStatus("备选帧率需留空或填写 30–2000。", error: true);
+            return;
+        }
+        _fpsAlternate = text.Length == 0 ? 0 : int.Parse(text, CultureInfo.InvariantCulture);
+        _fpsAlternateBox.Text = _fpsAlternate == 0 ? "" : _fpsAlternate.ToString(CultureInfo.InvariantCulture);
+        if (_fpsAlternate == 0) _fpsActiveAlternate = false;
+        UpdateFpsActiveLabel();
+        TrySaveConfig();
+    }
+
+    private void ApplyFpsHotkey(string text)
+    {
+        if (!LogicHotkeyInput.TryNormalize(text, out string normalized))
+        {
+            _fpsHotkeyBox.Text = _fpsHotkey;
+            SetStatus("快捷键格式无效；示例：ctrl+alt+1、shift+mouse_x1。", error: true);
+            return;
+        }
+        _fpsHotkey = normalized;
+        _fpsHotkeyBox.Text = normalized;
+        TrySaveConfig();
+    }
+
+    private void UpdateFpsActiveLabel()
+    {
+        int active = _fpsActiveAlternate && _fpsAlternate != 0 ? _fpsAlternate : (int)_fpsBox.Value;
+        _fpsActiveLabel.Text = $"当前：{active} FPS";
+    }
+
     private void WireAutoSave()
     {
         _enableFps.CheckedChanged += (_, _) => TrySaveConfig();
         _fpsBox.ValueChanged += (_, _) => TrySaveConfig();
+        _fpsBox.ValueChanged += (_, _) => UpdateFpsActiveLabel();
         _enableFov.CheckedChanged += (_, _) => TrySaveConfig();
         _fovBox.ValueChanged += (_, _) => TrySaveConfig();
         _fovSpeedBar.ValueChanged += (_, _) => TrySaveConfig();
         _enableVSync.CheckedChanged += (_, _) => TrySaveConfig();
         _enableRemoveTeamAnim.CheckedChanged += (_, _) => TrySaveConfig();
+        _enableDomainMap.CheckedChanged += (_, _) => TrySaveConfig();
+        _enableSkillCd.CheckedChanged += (_, _) => TrySaveConfig();
+        _showSkillCdE.CheckedChanged += (_, _) => TrySaveConfig();
+        _showSkillCdQ.CheckedChanged += (_, _) => TrySaveConfig();
+        _showSkillCdCharges.CheckedChanged += (_, _) => TrySaveConfig();
         _enableRemoveUltimateAnim.CheckedChanged += (_, _) => TrySaveConfig();
         _enableHideUid.CheckedChanged += (_, _) => TrySaveConfig();
         _enableDisableFog.CheckedChanged += (_, _) => TrySaveConfig();
@@ -624,6 +733,7 @@ internal sealed class MainForm : Form
 
     private void RefreshGameState()
     {
+        SyncFpsStateFromConfig();
         if (_launcherState != LauncherState.Running) return;
 
         Process? process = GetLiveGameProcess();
@@ -632,6 +742,23 @@ internal sealed class MainForm : Form
         _gameMonitorTimer.Stop();
         _gameProcess = null;
         SetLauncherState(LauncherState.Idle, "游戏已退出。");
+    }
+
+    private void SyncFpsStateFromConfig()
+    {
+        string path = Path.Combine(Program.PluginsDir, "config.ini");
+        if (!File.Exists(path)) return;
+        DateTime modified = File.GetLastWriteTimeUtc(path);
+        if (modified == _lastConfigWriteTimeUtc) return;
+        try
+        {
+            var values = ReadIniValues(path);
+            _fpsActiveAlternate = _fpsAlternate != 0 &&
+                GetDecimal(values, "TargetFps", _fpsBox.Value) == _fpsAlternate;
+            UpdateFpsActiveLabel();
+            _lastConfigWriteTimeUtc = modified;
+        }
+        catch (IOException) { /* 下一轮再读 */ }
     }
 
     private void DetectExistingGame()
@@ -723,6 +850,7 @@ internal sealed class MainForm : Form
     // ---- 写 Plugins\config.ini（格式与 Plugin\Config.cpp 读取逻辑一致）----
     private void WriteConfig()
     {
+        SyncFpsStateFromConfig();
         // config.ini 必须和 SimpleUnlocker.dll 同目录。
         // 单 exe 分发时，DLL 会自动解包到 LocalAppData\LiteUnlocker\runtime\Plugins。
         string pluginsDir = Program.PluginsDir;
@@ -743,7 +871,16 @@ internal sealed class MainForm : Form
         sb.AppendLine($"Value={(_enableFps.Checked ? 1 : 0)}");
         sb.AppendLine();
         sb.AppendLine("[TargetFps]");
+        sb.AppendLine($"Value={(_fpsActiveAlternate && _fpsAlternate != 0 ? _fpsAlternate : (int)_fpsBox.Value)}");
+        sb.AppendLine();
+        sb.AppendLine("[FpsPrimary]");
         sb.AppendLine($"Value={(int)_fpsBox.Value}");
+        sb.AppendLine();
+        sb.AppendLine("[FpsAlternate]");
+        sb.AppendLine($"Value={_fpsAlternate}");
+        sb.AppendLine();
+        sb.AppendLine("[FpsToggleHotkey]");
+        sb.AppendLine($"Value={_fpsHotkey}");
         sb.AppendLine();
         sb.AppendLine("[VSync]");
         sb.AppendLine($"Value={(_enableVSync.Checked ? 1 : 0)}");
@@ -763,6 +900,9 @@ internal sealed class MainForm : Form
         sb.AppendLine();
         sb.AppendLine("[RemoveTeamAnim]");
         sb.AppendLine($"Value={(_enableRemoveTeamAnim.Checked ? 1 : 0)}");
+        sb.AppendLine();
+        sb.AppendLine("[EnableDomainMap]");
+        sb.AppendLine($"Value={(_enableDomainMap.Checked ? 1 : 0)}");
         sb.AppendLine();
         sb.AppendLine("[DisableUltimateAnim]");
         sb.AppendLine($"Value={(_enableRemoveUltimateAnim.Checked ? 1 : 0)}");
@@ -792,20 +932,64 @@ internal sealed class MainForm : Form
         int autoCookKey = _autoCookKeyCombo.SelectedIndex >= 0 ? 112 + _autoCookKeyCombo.SelectedIndex : 0;
         sb.AppendLine($"Value={autoCookKey}");
 
-        File.WriteAllText(cfgPath, sb.ToString(), new UTF8Encoding(false));
+        string tempPath = cfgPath + ".tmp";
+        File.WriteAllText(tempPath, sb.ToString(), new UTF8Encoding(false));
+        File.Move(tempPath, cfgPath, overwrite: true);
+        _lastConfigWriteTimeUtc = File.GetLastWriteTimeUtc(cfgPath);
+        WriteSkillCooldownConfig();
+    }
+
+    private void WriteSkillCooldownConfig()
+    {
+        Directory.CreateDirectory(Program.DisplayCdDir);
+        var sb = new StringBuilder();
+        sb.AppendLine("[General]");
+        sb.AppendLine("Name = 显示全队技能CD");
+        sb.AppendLine("Description = 可显示前后台角色元素爆发/战技的剩余冷却时间");
+        sb.AppendLine("Developer = 风间千雪");
+        sb.AppendLine("File = DisplayCD.dll");
+        sb.AppendLine("Version = 1.0.3");
+        sb.AppendLine("GameVersion = 7.2");
+        sb.AppendLine();
+        sb.AppendLine("[EnableSkillCD]");
+        sb.AppendLine($"Value = {(_enableSkillCd.Checked ? 1 : 0)}");
+        sb.AppendLine();
+        sb.AppendLine("[ShowElementalSkillCD]");
+        sb.AppendLine($"Value = {(_showSkillCdE.Checked ? 1 : 0)}");
+        sb.AppendLine();
+        sb.AppendLine("[ShowElementalBurstCD]");
+        sb.AppendLine($"Value = {(_showSkillCdQ.Checked ? 1 : 0)}");
+        sb.AppendLine();
+        sb.AppendLine("[ShowChargeIndicators]");
+        sb.AppendLine($"Value = {(_showSkillCdCharges.Checked ? 1 : 0)}");
+        string tempPath = Program.DisplayCdConfigPath + ".tmp";
+        File.WriteAllText(tempPath, sb.ToString(), new UTF8Encoding(false));
+        File.Move(tempPath, Program.DisplayCdConfigPath, overwrite: true);
     }
 
     private void LoadConfig()
     {
         string cfgPath = Path.Combine(Program.PluginsDir, "config.ini");
-        if (!File.Exists(cfgPath)) return;
-
         try
         {
+            LoadSkillCooldownConfig();
+            if (!File.Exists(cfgPath)) return;
             var values = ReadIniValues(cfgPath);
             _gamePathBox.Text = GetValue(values, "GamePath", "");
             _enableFps.Checked = GetBool(values, "FpsUnlock", _enableFps.Checked);
-            SetNumericValue(_fpsBox, GetDecimal(values, "TargetFps", _fpsBox.Value));
+            decimal targetFps = GetDecimal(values, "TargetFps", _fpsBox.Value);
+            SetNumericValue(_fpsBox, GetDecimal(values, "FpsPrimary", targetFps));
+            int alternate = (int)GetDecimal(values, "FpsAlternate", 0);
+            _fpsAlternate = alternate is >= 30 and <= 2000 ? alternate : 0;
+            _fpsAlternateBox.Text = _fpsAlternate == 0 ? "" : _fpsAlternate.ToString(CultureInfo.InvariantCulture);
+            _fpsActiveAlternate = _fpsAlternate != 0 && targetFps == _fpsAlternate;
+            string rawHotkey = GetValue(values, "FpsToggleHotkey", "");
+            if (LogicHotkeyInput.TryNormalize(rawHotkey, out string normalized))
+            {
+                _fpsHotkey = normalized;
+                _fpsHotkeyBox.Text = normalized;
+            }
+            UpdateFpsActiveLabel();
             _enableVSync.Checked = GetBool(values, "VSync", _enableVSync.Checked);
             _enableFov.Checked = GetBool(values, "FovUnlock", _enableFov.Checked);
             SetNumericValue(_fovBox, GetDecimal(values, "FovValue", _fovBox.Value));
@@ -815,6 +999,7 @@ internal sealed class MainForm : Form
             _fovSpeedBar.Value = Math.Clamp(sliderValue, _fovSpeedBar.Minimum, _fovSpeedBar.Maximum);
             _fovSpeedVal.Text = (_fovSpeedBar.Value / 100.0).ToString("0.00");
             _enableRemoveTeamAnim.Checked = GetBool(values, "RemoveTeamAnim", _enableRemoveTeamAnim.Checked);
+            _enableDomainMap.Checked = GetBool(values, "EnableDomainMap", false);
             _enableRemoveUltimateAnim.Checked = GetBool(values, "DisableUltimateAnim",
                 GetBool(values, "DisableCameraMove", _enableRemoveUltimateAnim.Checked));
             _enableHideUid.Checked = GetBool(values, "HideUID", _enableHideUid.Checked);
@@ -826,11 +1011,22 @@ internal sealed class MainForm : Form
             _enableAutoCook.Checked = GetBool(values, "AutoCook", _enableAutoCook.Checked);
             int autoCookKeyVal = (int)GetDecimal(values, "AutoCookKey", 121);
             _autoCookKeyCombo.SelectedIndex = (autoCookKeyVal >= 112 && autoCookKeyVal <= 123) ? autoCookKeyVal - 112 : 9;
+            _lastConfigWriteTimeUtc = File.GetLastWriteTimeUtc(cfgPath);
         }
         catch (Exception ex)
         {
             SetStatus($"读取上次配置失败：{ex.Message}", error: true);
         }
+    }
+
+    private void LoadSkillCooldownConfig()
+    {
+        if (!File.Exists(Program.DisplayCdConfigPath)) return;
+        var values = ReadIniValues(Program.DisplayCdConfigPath);
+        _enableSkillCd.Checked = GetBool(values, "EnableSkillCD", false);
+        _showSkillCdE.Checked = GetBool(values, "ShowElementalSkillCD", true);
+        _showSkillCdQ.Checked = GetBool(values, "ShowElementalBurstCD", true);
+        _showSkillCdCharges.Checked = GetBool(values, "ShowChargeIndicators", true);
     }
 
     private void TrySaveConfig()

@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "FpsHotkey.h"
 #include <string>
 #include <cstdio>
 #include <Windows.h>
@@ -22,6 +23,12 @@ namespace Config {
         snprintf(defStr, sizeof(defStr), "%f", defaultVal);
         GetPrivateProfileStringA(section, "Value", defStr, buf, 32, file);
         return (float)atof(buf);
+    }
+
+    static std::string ReadString(LPCSTR section, LPCSTR file) {
+        char buf[128]{};
+        GetPrivateProfileStringA(section, "Value", "", buf, sizeof(buf), file);
+        return buf;
     }
 
     // 取得本 dll 所在目录下的 config.ini 路径
@@ -50,6 +57,10 @@ namespace Config {
 
         g_Config.enable_fps_override   = ReadInt("FpsUnlock",      0, file);
         g_Config.selected_fps          = ReadInt("TargetFps",      60, file);
+        g_Config.primary_fps           = ReadInt("FpsPrimary", g_Config.selected_fps, file);
+        g_Config.alternate_fps         = ReadInt("FpsAlternate", 0, file);
+        g_Config.fps_toggle_hotkey     = ReadString("FpsToggleHotkey", file);
+        FpsHotkey::Configure(g_Config.fps_toggle_hotkey);
         g_Config.enable_vsync_override = ReadInt("VSync",          1, file);
 
         g_Config.enable_fov_override   = ReadInt("FovUnlock",      0, file);
@@ -64,6 +75,7 @@ namespace Config {
 
         // UI 体验优化
         g_Config.enable_remove_team_anim = ReadInt("RemoveTeamAnim", 0, file);
+        g_Config.enable_domain_map      = ReadInt("EnableDomainMap", 0, file) == 1;
         g_Config.disable_ultimate_anim   = ReadInt("DisableUltimateAnim",
                                                    ReadInt("DisableCameraMove", 0, file), file);
         g_Config.hide_uid               = ReadInt("HideUID", 0, file);

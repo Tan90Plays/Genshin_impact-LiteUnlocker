@@ -62,6 +62,8 @@
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="Cooking.h" />
     <ClInclude Include="CookingPatterns.h" />
+    <ClInclude Include="DomainMap.h" />
+    <ClInclude Include="FpsHotkey.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Config.cpp" />
@@ -69,6 +71,8 @@
     <ClCompile Include="Hooks.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Cooking.cpp" />
+    <ClCompile Include="DomainMap.cpp" />
+    <ClCompile Include="FpsHotkey.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="MinHook\libMinHook.x64.lib" />

@@ -28,6 +28,8 @@
 #include "Config.h"
 #include "Hooks.h"
 #include "Cooking.h"
+#include "DomainMap.h"
+#include "../ThirdParty/DisplayCD/src/HookSetupGuard.h"
 
 // il2cpp 字符串不透明类型：只作为指针传递，不需要其内部结构
 struct Il2CppString;
@@ -98,12 +100,25 @@ namespace Hooks {
 
     // 特征码诊断结果收集（Init 时逐个填入）
     static std::vector<DiagResult> g_Diagnostics;
+    static bool g_domainMapReady = false;
 
     const std::vector<DiagResult>& GetDiagnostics() { return g_Diagnostics; }
 
     // 辅助：记录一条诊断结果
     static void RecordDiag(const char* name, const char* feature, bool ok, const char* note) {
         g_Diagnostics.push_back({ name, feature, ok, note });
+    }
+
+    void SyncOptionalHooks() {
+        Detached::HookSetupGuard setupGuard;
+        if (!setupGuard) return;
+        g_domainMapReady = DomainMap::SetHookEnabled(Config::Get().enable_domain_map);
+        for (auto& diag : g_Diagnostics) {
+            if (diag.name == "DomainMap") {
+                diag.ok = g_domainMapReady;
+                diag.note = DomainMap::DiagnosticNote();
+            }
+        }
     }
 
     // FOV 平滑过渡用的"当前实际生效值"。
@@ -429,6 +444,8 @@ namespace Hooks {
     //  初始化：扫描 + 安装 hook
     // =========================================================
     bool Init() {
+        Detached::HookSetupGuard setupGuard;
+        if (!setupGuard) return false;
         std::cout << "[Unlocker] 开始初始化 Hooks...\n";
 
         char exePath[MAX_PATH] = {};
@@ -642,6 +659,8 @@ namespace Hooks {
         RecordDiag("CraftPartner",     "随身合成台",       p_CraftPartner != nullptr,    "绝对地址");
         RecordDiag("CraftEntry",       "随身合成台",       craftEntryHookCreated && hooksEnabled, "绝对地址");
         RecordDiag("AutoCook",         "随身烹饪",         Cooking::IsReady() && hooksEnabled, "特征扫描/临时补丁");
+        g_domainMapReady = DomainMap::SetHookEnabled(Config::Get().enable_domain_map);
+        RecordDiag("DomainMap", "秘境跳转地图", g_domainMapReady, DomainMap::DiagnosticNote());
 
         return true;
     }

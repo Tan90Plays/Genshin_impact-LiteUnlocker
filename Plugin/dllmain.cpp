@@ -18,6 +18,7 @@
 
 #include "Config.h"
 #include "Hooks.h"
+#include "FpsHotkey.h"
 
 static std::string g_LogPath;
 
@@ -59,6 +60,25 @@ static FILETIME GetFileLastWriteTime(const std::string& path) {
     return t;
 }
 
+static void WriteDiagnostics() {
+    std::string diagPath = Config::GetConfigPath();
+    const size_t slash = diagPath.find_last_of("\\/");
+    if (slash != std::string::npos) diagPath = diagPath.substr(0, slash + 1);
+    diagPath += "diag.json";
+    std::ofstream ofs(diagPath, std::ios::trunc);
+    if (!ofs.is_open()) return;
+    ofs << "{\"timestamp\":" << (long long)time(nullptr) << ",\"results\":[";
+    const auto& diags = Hooks::GetDiagnostics();
+    for (size_t i = 0; i < diags.size(); ++i) {
+        if (i) ofs << ",";
+        ofs << "{\"name\":\"" << diags[i].name << "\""
+            << ",\"feature\":\"" << diags[i].feature << "\""
+            << ",\"ok\":" << (diags[i].ok ? "true" : "false")
+            << ",\"note\":\"" << diags[i].note << "\"}";
+    }
+    ofs << "]}";
+}
+
 // 主工作线程：DLL 被注入后从这里开始跑
 static void MainWorker(HMODULE hMod) {
     // 日志文件放在 dll 同目录
@@ -90,31 +110,7 @@ static void MainWorker(HMODULE hMod) {
     }
 
     // 3.5 把特征码诊断结果写成 diag.json（供 GUI 读取显示）
-    {
-        // diag.json 放在 unlocker.log 同目录（即 dll 所在的 Plugins 目录）
-        std::string diagPath = g_LogPath;
-        size_t slash = diagPath.find_last_of("\\/");
-        if (slash != std::string::npos) diagPath = diagPath.substr(0, slash + 1);
-        diagPath += "diag.json";
-
-        std::ofstream ofs(diagPath, std::ios::trunc);
-        if (ofs.is_open()) {
-            ofs << "{\"timestamp\":" << (long long)time(nullptr)
-                << ",\"results\":[";
-            const auto& diags = Hooks::GetDiagnostics();
-            for (size_t i = 0; i < diags.size(); ++i) {
-                if (i) ofs << ",";
-                // 手写 JSON 转义（字段不含特殊字符，无需复杂转义）
-                ofs << "{\"name\":\"" << diags[i].name << "\""
-                    << ",\"feature\":\"" << diags[i].feature << "\""
-                    << ",\"ok\":" << (diags[i].ok ? "true" : "false")
-                    << ",\"note\":\"" << diags[i].note << "\"}";
-            }
-            ofs << "]}";
-            ofs.close();
-            Log("诊断结果已写入 diag.json");
-        }
-    }
+    WriteDiagnostics();
 
     // 4. 等待游戏主循环就绪（ChangeFOV 第一次被调用）
     std::cout << "[Unlocker] 等待游戏主循环...\n";
@@ -138,12 +134,15 @@ static void MainWorker(HMODULE hMod) {
     // 5. 热重载：监控 config.ini，改了就重新读取（无需重启游戏）
     std::string configPath = Config::GetConfigPath();
     FILETIME lastWrite = GetFileLastWriteTime(configPath);
+    ULONGLONG lastCraft = 0, lastCook = 0;
 
     while (true) {
         FILETIME currentWrite = GetFileLastWriteTime(configPath);
         if (CompareFileTime(&lastWrite, &currentWrite) != 0) {
             Sleep(100);
             Config::Load();
+            Hooks::SyncOptionalHooks();
+            WriteDiagnostics();
             Log("config.ini 已变更，配置已热重载");
             std::cout << "[Unlocker] 配置已热重载\n";
             lastWrite = GetFileLastWriteTime(configPath);
@@ -156,17 +155,35 @@ static void MainWorker(HMODULE hMod) {
         if (hForeground) GetWindowThreadProcessId(hForeground, &foregroundPid);
         bool isFocused = (foregroundPid == GetCurrentProcessId());
 
-        if (cfg.craft_key != 0 && isFocused && (GetAsyncKeyState(cfg.craft_key) & 0x8000)) {
-            Hooks::RequestOpenCraft();
-            Sleep(500);   // 防抖：避免长按连续触发
-        }
-        if (cfg.enable_auto_cook && cfg.auto_cook_key != 0 && isFocused &&
-            (GetAsyncKeyState(cfg.auto_cook_key) & 0x8000)) {
-            Hooks::RequestOpenCooking();
-            Sleep(500);   // 防抖：避免长按连续触发
+        if (FpsHotkey::Poll(isFocused) && cfg.enable_fps_override &&
+            cfg.primary_fps >= 30 && cfg.primary_fps <= 2000 &&
+            cfg.alternate_fps >= 30 && cfg.alternate_fps <= 2000 &&
+            cfg.alternate_fps != cfg.primary_fps) {
+            const int next = cfg.selected_fps == cfg.alternate_fps
+                ? cfg.primary_fps : cfg.alternate_fps;
+            const std::string value = std::to_string(next);
+            if (WritePrivateProfileStringA("TargetFps", "Value", value.c_str(), configPath.c_str())) {
+                Config::Load();
+                Log("帧率快捷键切换: target=" + value);
+            } else {
+                Log("帧率快捷键写入配置失败");
+            }
         }
 
-        Sleep(100);
+        const ULONGLONG now = GetTickCount64();
+        if (cfg.craft_key != 0 && isFocused && (GetAsyncKeyState(cfg.craft_key) & 0x8000) &&
+            (lastCraft == 0 || now - lastCraft >= 500)) {
+            Hooks::RequestOpenCraft();
+            lastCraft = now;
+        }
+        if (cfg.enable_auto_cook && cfg.auto_cook_key != 0 && isFocused &&
+            (GetAsyncKeyState(cfg.auto_cook_key) & 0x8000) &&
+            (lastCook == 0 || now - lastCook >= 500)) {
+            Hooks::RequestOpenCooking();
+            lastCook = now;
+        }
+
+        Sleep(25);
     }
 }
 

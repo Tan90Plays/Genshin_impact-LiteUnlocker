@@ -8,6 +8,9 @@ struct ModConfig {
     // --- FPS 解锁 ---
     bool enable_fps_override = false;   // [FpsUnlock]     是否解锁帧率
     int  selected_fps        = 60;      // [TargetFps]     目标帧率
+    int  primary_fps         = 60;      // [FpsPrimary]    主挡位
+    int  alternate_fps       = 0;       // [FpsAlternate]  0 表示未设置
+    std::string fps_toggle_hotkey;     // [FpsToggleHotkey]
     bool enable_vsync_override = true;  // [VSync]         关闭垂直同步（解锁帧率时通常需要）
 
     // --- FOV 修改 ---
@@ -26,6 +29,7 @@ struct ModConfig {
 
     // --- UI 体验优化 ---
     bool enable_remove_team_anim = false; // [RemoveTeamAnim] 移除队伍切换动画（直接显示队伍页）
+    bool enable_domain_map = false;       // [EnableDomainMap] 秘境内奖励来源跳转地图
     bool disable_ultimate_anim = false;   // [DisableUltimateAnim] 移除大招/事件镜头动画
     bool hide_uid = false;                // [HideUID] 隐藏屏幕上的 UID 水印（直播/截图保护隐私）
 

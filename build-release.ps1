@@ -24,17 +24,24 @@ $sdkDir = Split-Path -Parent $dotnet
 $env:DOTNET_ROOT = $sdkDir
 $env:PATH = "$sdkDir;$env:PATH"
 $env:DOTNET_CLI_HOME = Join-Path $build 'dotnet-home'
-$env:NUGET_PACKAGES = Join-Path $build 'nuget-packages'
+$cachedPackages = Join-Path $root '..\Litelauncher\.build-home\.nuget\packages'
+$env:NUGET_PACKAGES = if (Test-Path -LiteralPath $cachedPackages) { $cachedPackages }
+                      else { Join-Path $build 'nuget-packages' }
 $env:APPDATA = Join-Path $build 'appdata'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 New-Item -ItemType Directory -Force -Path $build, $dist, $env:APPDATA | Out-Null
 
 $gui = Join-Path $root 'UnlockerGUI\UnlockerGUI.csproj'
-& $dotnet restore $gui -r win-x64 -p:Platform=x64 --source https://api.nuget.org/v3/index.json
+$restoreSource = if (Test-Path -LiteralPath $cachedPackages) {
+    $emptySource = Join-Path $build 'empty-nuget'
+    New-Item -ItemType Directory -Force -Path $emptySource | Out-Null
+    $emptySource
+} else { 'https://api.nuget.org/v3/index.json' }
+& $dotnet restore $gui -r win-x64 -p:Platform=x64 --source $restoreSource
 if ($LASTEXITCODE -ne 0) { throw 'GUI restore failed.' }
 
-foreach ($variant in @(@{Name='self-contained'; SelfContained='true'; File='LiteUnlocker-v1.1.1-win-x64-self-contained.exe'},
-                       @{Name='runtime'; SelfContained='false'; File='LiteUnlocker-v1.1.1-win-x64.exe'})) {
+foreach ($variant in @(@{Name='self-contained'; SelfContained='true'; File='LiteUnlocker-v1.1.2-win-x64-self-contained.exe'},
+                       @{Name='runtime'; SelfContained='false'; File='LiteUnlocker-v1.1.2-win-x64.exe'})) {
     $output = Join-Path $build "publish-$($variant.Name)"
     & $dotnet publish $gui -c Release -r win-x64 --self-contained $variant.SelfContained -p:Platform=x64 -p:PublishSingleFile=true --no-restore -o $output
     if ($LASTEXITCODE -ne 0) { throw "GUI publish failed: $($variant.Name)" }

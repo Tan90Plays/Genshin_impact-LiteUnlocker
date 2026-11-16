@@ -76,6 +76,8 @@ namespace Config {
         // UI 体验优化
         g_Config.enable_remove_team_anim = ReadInt("RemoveTeamAnim", 0, file);
         g_Config.enable_domain_map      = ReadInt("EnableDomainMap", 0, file) == 1;
+        g_Config.enable_stygian_hp      = ReadInt("EnableStygianHp", 0, file) == 1;
+        g_Config.show_stygian_max_hp    = ReadInt("ShowStygianMaxHp", 1, file) == 1;
         g_Config.disable_ultimate_anim   = ReadInt("DisableUltimateAnim",
                                                    ReadInt("DisableCameraMove", 0, file), file);
         g_Config.hide_uid               = ReadInt("HideUID", 0, file);

@@ -148,6 +148,8 @@ internal sealed class MainForm : Form
     private readonly CheckBox _enableVSync = new();
     private readonly CheckBox _enableRemoveTeamAnim = new();
     private readonly CheckBox _enableDomainMap = new();
+    private readonly CheckBox _enableStygianHp = new();
+    private readonly CheckBox _showStygianMaxHp = new();
     private readonly CheckBox _enableSkillCd = new();
     private readonly CheckBox _showSkillCdE = new();
     private readonly CheckBox _showSkillCdQ = new();
@@ -171,12 +173,12 @@ internal sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "LiteUnlocker 1.1.1";
+        Text = "LiteUnlocker 1.1.2";
         // 固定客户区尺寸，避免标题栏和 DPI 缩放把底部状态栏裁掉。
         ClientSize = new Size(562, Math.Min(900, Math.Max(700,
             (Screen.PrimaryScreen?.WorkingArea.Height ?? 1032) - 64)));
         AutoScroll = true;
-        AutoScrollMinSize = new Size(544, 930);
+        AutoScrollMinSize = new Size(544, 962);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -313,7 +315,7 @@ internal sealed class MainForm : Form
         Controls.Add(fovGroup);
 
         // --- 体验优化 ---
-        var extraGroup = MakeGroup("体验优化", 18, 436, 508, 162);
+        var extraGroup = MakeGroup("体验优化", 18, 436, 508, 194);
         _enableRemoveTeamAnim.Text = "移除队伍切换动画";
         _enableRemoveTeamAnim.Left = 16; _enableRemoveTeamAnim.Top = 28; _enableRemoveTeamAnim.Width = 170;
         _enableHideUid.Text = "隐藏 UID 水印";
@@ -333,14 +335,20 @@ internal sealed class MainForm : Form
         _showSkillCdCharges.Text = "战技充能次数";
         _showSkillCdCharges.Left = 325; _showSkillCdCharges.Top = 126; _showSkillCdCharges.Width = 155;
         _showSkillCdCharges.Checked = true;
+        _enableStygianHp.Text = "幽境 Boss 当前血量";
+        _enableStygianHp.Left = 16; _enableStygianHp.Top = 158; _enableStygianHp.Width = 225;
+        _showStygianMaxHp.Text = "同时显示最大血量";
+        _showStygianMaxHp.Left = 255; _showStygianMaxHp.Top = 158; _showStygianMaxHp.Width = 225;
+        _showStygianMaxHp.Checked = true;
         extraGroup.Controls.AddRange(new Control[] {
             _enableRemoveTeamAnim, _enableHideUid, _enableRemoveUltimateAnim, _enableDomainMap,
-            _enableSkillCd, _showSkillCdE, _showSkillCdQ, _showSkillCdCharges
+            _enableSkillCd, _showSkillCdE, _showSkillCdQ, _showSkillCdCharges,
+            _enableStygianHp, _showStygianMaxHp
         });
         Controls.Add(extraGroup);
 
         // --- 视觉效果 ---
-        var visualGroup = MakeGroup("视觉效果", 18, 610, 508, 62);
+        var visualGroup = MakeGroup("视觉效果", 18, 642, 508, 62);
         _enableDisableFog.Text = "关闭场景雾效";
         _enableDisableFog.Left = 16; _enableDisableFog.Top = 28; _enableDisableFog.Width = 170;
         _enableDisableCharFade.Text = "关闭角色半透明";
@@ -349,7 +357,7 @@ internal sealed class MainForm : Form
         Controls.Add(visualGroup);
 
         // --- 便利功能（随身合成台）---
-        var craftGroup = MakeGroup("便利功能", 18, 684, 508, 62);
+        var craftGroup = MakeGroup("便利功能", 18, 716, 508, 62);
         _enableRedirectCraft.Text = "随身合成台";
         _enableRedirectCraft.Left = 16; _enableRedirectCraft.Top = 28; _enableRedirectCraft.Width = 130;
         var lblCraftKey = new Label { Text = "热键", Left = 170, Top = 32, Width = 36, Height = 20 };
@@ -363,7 +371,7 @@ internal sealed class MainForm : Form
         Controls.Add(craftGroup);
 
         // --- 随身烹饪 ---
-        var cookGroup = MakeGroup("随身烹饪", 18, 758, 508, 62);
+        var cookGroup = MakeGroup("随身烹饪", 18, 790, 508, 62);
         _enableAutoCook.Text = "快捷打开烹饪界面";
         _enableAutoCook.Left = 16; _enableAutoCook.Top = 28; _enableAutoCook.Width = 160;
         var lblCookKey = new Label { Text = "热键", Left = 190, Top = 32, Width = 36, Height = 20 };
@@ -378,19 +386,19 @@ internal sealed class MainForm : Form
 
         // --- 启动按钮 ---
         _startBtn.Text = "▶  启动游戏";
-        _startBtn.Left = 18; _startBtn.Top = 832; _startBtn.Width = 508; _startBtn.Height = 44;
+        _startBtn.Left = 18; _startBtn.Top = 864; _startBtn.Width = 508; _startBtn.Height = 44;
         _startBtn.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
         StylePrimaryButton();
         _startBtn.Click += OnStart;
 
         // --- 状态栏 ---
-        _statusLabel.Left = 20; _statusLabel.Top = 884; _statusLabel.Width = 410; _statusLabel.Height = 22;
+        _statusLabel.Left = 20; _statusLabel.Top = 916; _statusLabel.Width = 410; _statusLabel.Height = 22;
         _statusLabel.Text = "就绪。";
         _statusLabel.ForeColor = Color.FromArgb(21, 128, 61);
 
         // --- 诊断按钮 ---
         _diagBtn.Text = "特征码诊断";
-        _diagBtn.Left = 438; _diagBtn.Top = 882; _diagBtn.Width = 90; _diagBtn.Height = 26;
+        _diagBtn.Left = 438; _diagBtn.Top = 914; _diagBtn.Width = 90; _diagBtn.Height = 26;
         _diagBtn.Font = new Font("Microsoft YaHei UI", 8.5F);
         StyleSecondaryButton(_diagBtn);
         _diagBtn.Click += OnDiagnose;
@@ -490,6 +498,8 @@ internal sealed class MainForm : Form
         _enableVSync.CheckedChanged += (_, _) => TrySaveConfig();
         _enableRemoveTeamAnim.CheckedChanged += (_, _) => TrySaveConfig();
         _enableDomainMap.CheckedChanged += (_, _) => TrySaveConfig();
+        _enableStygianHp.CheckedChanged += (_, _) => TrySaveConfig();
+        _showStygianMaxHp.CheckedChanged += (_, _) => TrySaveConfig();
         _enableSkillCd.CheckedChanged += (_, _) => TrySaveConfig();
         _showSkillCdE.CheckedChanged += (_, _) => TrySaveConfig();
         _showSkillCdQ.CheckedChanged += (_, _) => TrySaveConfig();
@@ -904,6 +914,12 @@ internal sealed class MainForm : Form
         sb.AppendLine("[EnableDomainMap]");
         sb.AppendLine($"Value={(_enableDomainMap.Checked ? 1 : 0)}");
         sb.AppendLine();
+        sb.AppendLine("[EnableStygianHp]");
+        sb.AppendLine($"Value={(_enableStygianHp.Checked ? 1 : 0)}");
+        sb.AppendLine();
+        sb.AppendLine("[ShowStygianMaxHp]");
+        sb.AppendLine($"Value={(_showStygianMaxHp.Checked ? 1 : 0)}");
+        sb.AppendLine();
         sb.AppendLine("[DisableUltimateAnim]");
         sb.AppendLine($"Value={(_enableRemoveUltimateAnim.Checked ? 1 : 0)}");
         sb.AppendLine();
@@ -1000,6 +1016,8 @@ internal sealed class MainForm : Form
             _fovSpeedVal.Text = (_fovSpeedBar.Value / 100.0).ToString("0.00");
             _enableRemoveTeamAnim.Checked = GetBool(values, "RemoveTeamAnim", _enableRemoveTeamAnim.Checked);
             _enableDomainMap.Checked = GetBool(values, "EnableDomainMap", false);
+            _enableStygianHp.Checked = GetBool(values, "EnableStygianHp", false);
+            _showStygianMaxHp.Checked = GetBool(values, "ShowStygianMaxHp", true);
             _enableRemoveUltimateAnim.Checked = GetBool(values, "DisableUltimateAnim",
                 GetBool(values, "DisableCameraMove", _enableRemoveUltimateAnim.Checked));
             _enableHideUid.Checked = GetBool(values, "HideUID", _enableHideUid.Checked);

@@ -30,6 +30,8 @@ struct ModConfig {
     // --- UI 体验优化 ---
     bool enable_remove_team_anim = false; // [RemoveTeamAnim] 移除队伍切换动画（直接显示队伍页）
     bool enable_domain_map = false;       // [EnableDomainMap] 秘境内奖励来源跳转地图
+    bool enable_stygian_hp = false;       // [EnableStygianHp] 幽境单血条 Boss 本地 HP
+    bool show_stygian_max_hp = true;      // [ShowStygianMaxHp] 同时显示最大 HP
     bool disable_ultimate_anim = false;   // [DisableUltimateAnim] 移除大招/事件镜头动画
     bool hide_uid = false;                // [HideUID] 隐藏屏幕上的 UID 水印（直播/截图保护隐私）
 

@@ -29,6 +29,7 @@
 #include "Hooks.h"
 #include "Cooking.h"
 #include "DomainMap.h"
+#include "StygianHpDisplay.h"
 #include "../ThirdParty/DisplayCD/src/HookSetupGuard.h"
 
 // il2cpp 字符串不透明类型：只作为指针传递，不需要其内部结构
@@ -101,6 +102,7 @@ namespace Hooks {
     // 特征码诊断结果收集（Init 时逐个填入）
     static std::vector<DiagResult> g_Diagnostics;
     static bool g_domainMapReady = false;
+    static bool g_stygianHpReady = false;
 
     const std::vector<DiagResult>& GetDiagnostics() { return g_Diagnostics; }
 
@@ -113,10 +115,16 @@ namespace Hooks {
         Detached::HookSetupGuard setupGuard;
         if (!setupGuard) return;
         g_domainMapReady = DomainMap::SetHookEnabled(Config::Get().enable_domain_map);
+        g_stygianHpReady = StygianHpDisplay::SetEnabled(
+            Config::Get().enable_stygian_hp, Config::Get().show_stygian_max_hp);
         for (auto& diag : g_Diagnostics) {
             if (diag.name == "DomainMap") {
                 diag.ok = g_domainMapReady;
                 diag.note = DomainMap::DiagnosticNote();
+            }
+            if (diag.name == "StygianHpDisplay") {
+                diag.ok = g_stygianHpReady;
+                diag.note = StygianHpDisplay::DiagnosticNote();
             }
         }
     }
@@ -661,6 +669,10 @@ namespace Hooks {
         RecordDiag("AutoCook",         "随身烹饪",         Cooking::IsReady() && hooksEnabled, "特征扫描/临时补丁");
         g_domainMapReady = DomainMap::SetHookEnabled(Config::Get().enable_domain_map);
         RecordDiag("DomainMap", "秘境跳转地图", g_domainMapReady, DomainMap::DiagnosticNote());
+        g_stygianHpReady = StygianHpDisplay::SetEnabled(
+            Config::Get().enable_stygian_hp, Config::Get().show_stygian_max_hp);
+        RecordDiag("StygianHpDisplay", "幽境 Boss 血量", g_stygianHpReady,
+                   StygianHpDisplay::DiagnosticNote());
 
         return true;
     }

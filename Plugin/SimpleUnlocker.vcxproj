@@ -36,6 +36,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>None</DebugInformationFormat>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
@@ -50,7 +51,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <AdditionalDependencies>MinHook\libMinHook.x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
@@ -63,6 +64,7 @@
     <ClInclude Include="Cooking.h" />
     <ClInclude Include="CookingPatterns.h" />
     <ClInclude Include="DomainMap.h" />
+    <ClInclude Include="StygianHpDisplay.h" />
     <ClInclude Include="FpsHotkey.h" />
   </ItemGroup>
   <ItemGroup>
@@ -72,6 +74,7 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Cooking.cpp" />
     <ClCompile Include="DomainMap.cpp" />
+    <ClCompile Include="StygianHpDisplay.cpp" />
     <ClCompile Include="FpsHotkey.cpp" />
   </ItemGroup>
   <ItemGroup>

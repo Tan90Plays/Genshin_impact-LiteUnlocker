@@ -1,6 +1,6 @@
 # LiteUnlocker
 
-当前版本：**1.1.1**。下载：[自包含版](https://github.com/Tan90Plays/Genshin_impact-LiteUnlocker/releases/tag/v1.1.1)或需要 .NET 8 Windows Desktop Runtime 的轻量版。
+当前版本：**1.1.2**。下载：[自包含版](https://github.com/Tan90Plays/Genshin_impact-LiteUnlocker/releases/tag/v1.1.2)或需要 .NET 8 Windows Desktop Runtime 的轻量版。
 
 > 本项目基于原始 [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker) 二次开发。随身烹饪及部分注入 / Hook 实现进一步衍生自 [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland)；完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -11,6 +11,7 @@
 - **移除队伍切换动画**：跳过角色展示，直接打开队伍页面。
 - **秘境内跳转地图**：在已验证的国服 7.2 构建中，允许从秘境内奖励来源跳转地图；默认关闭。
 - **全队技能 CD 显示**：队伍栏显示 E、Q 冷却及充能次数；独立插件，默认关闭。
+- **幽境 Boss 血量显示**：在已验证的国服 7.2 幽境单血条 Boss 右侧显示本地当前 HP，可选同时显示最大 HP；默认关闭。见[范围与设置](docs/README_STYGIAN_HP.md)。
 - **移除大招动画**：跳过 EventCamera 事件镜头移动。
 - **隐藏 UID 水印**：仅隐藏本地画面中的 UID 水印。
 - **关闭场景雾效 / 角色半透明**：本地视觉效果调整。
@@ -46,6 +47,7 @@ LiteUnlocker_src/
 │   ├── Hooks.cpp / Hooks.h         # FPS、FOV、UI、合成等 Hook
 │   ├── Cooking.cpp / Cooking.h     # 随身烹饪实现（Fufu 衍生）
 │   ├── DomainMap.cpp / .h          # 秘境奖励来源跳转地图
+│   ├── StygianHpDisplay.cpp / .h   # 幽境单血条 Boss 血量显示
 │   ├── FpsHotkey.cpp / .h          # 帧率切换快捷键
 │   ├── CookingPatterns.h           # 烹饪相关特征码
 │   ├── Scanner.cpp / Scanner.h     # 特征码扫描器
@@ -63,6 +65,11 @@ LiteUnlocker_src/
 ```
 
 构建输出 `build/`、`UnlockerGUI/bin/`、`UnlockerGUI/obj/` 均为可再生成文件，已被 Git 忽略，不属于源码。
+
+## 1.1.2 更新
+
+- 在“体验优化”加入幽境 Boss 血量显示及“同时显示最大血量”开关。独立 v141 原型已在游戏内验证；集成版限定于已验证的国服 7.2 单血条场景，其他 Boss 的对应关系仍未确认。
+- 功能默认关闭，配置可热重载。适用范围、读取精度与操作方式见[血量显示说明](docs/README_STYGIAN_HP.md)和[1.1.2 更新说明](RELEASE_NOTES-v1.1.2.md)。
 
 ## 1.1.1 更新
 
@@ -103,8 +110,8 @@ LiteUnlocker_src/
 - `build/Launcher.dll`
 - `build/SimpleUnlocker.dll`
 - `build/DisplayCD.dll`
-- `dist/LiteUnlocker-v1.1.1-win-x64-self-contained.exe`
-- `dist/LiteUnlocker-v1.1.1-win-x64.exe`
+- `dist/LiteUnlocker-v1.1.2-win-x64-self-contained.exe`
+- `dist/LiteUnlocker-v1.1.2-win-x64.exe`
 
 ### 发布 GUI
 

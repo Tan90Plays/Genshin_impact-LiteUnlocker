@@ -1,0 +1,45 @@
+name: Publish LiteUnlocker 1.1.2 assets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.1.2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build release
+        shell: pwsh
+        run: .\build-release.ps1
+      - name: Verify version and write checksums
+        shell: pwsh
+        run: |
+          $names = @('LiteUnlocker-v1.1.2-win-x64-self-contained.exe',
+                     'LiteUnlocker-v1.1.2-win-x64.exe')
+          $lines = foreach ($name in $names) {
+            $path = Join-Path 'dist' $name
+            if ((Get-Item -LiteralPath $path).VersionInfo.FileVersion -ne '1.1.2.0') {
+              throw "Incorrect version: $name"
+            }
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name"
+          }
+          [IO.File]::WriteAllLines((Join-Path 'dist' 'SHA256SUMS.txt'),
+                                   [string[]]$lines, [Text.UTF8Encoding]::new($false))
+      - name: Upload assets and publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v1.1.2 dist/LiteUnlocker-v1.1.2-win-x64-self-contained.exe --clobber
+          gh release upload v1.1.2 dist/LiteUnlocker-v1.1.2-win-x64.exe --clobber
+          gh release upload v1.1.2 dist/SHA256SUMS.txt --clobber
+          gh release edit v1.1.2 --draft=false

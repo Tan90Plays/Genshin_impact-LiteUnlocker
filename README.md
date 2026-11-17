@@ -1,5 +1,13 @@
 # LiteUnlocker
 
+## ⚠️ 风险声明
+
+1. 修改或注入游戏客户端可能违反游戏服务条款，并存在**封号**或**其他风险**。
+2. 特征码、Hook 和临时内存补丁会随游戏更新失效，也可能导致崩溃或异常行为。
+3. 本项目仅供学习、研究和本地测试；请自行承担使用风险，**不要**用于正式账号或使用某些功能于公开视频、直播等。
+
+---
+
 当前版本：**1.1.2**。下载：[自包含版](https://github.com/Tan90Plays/Genshin_impact-LiteUnlocker/releases/tag/v1.1.2)或需要 .NET 8 Windows Desktop Runtime 的轻量版。
 
 > 本项目基于原始 [wannabeabetterman/LiteUnlocker](https://github.com/wannabeabetterman/LiteUnlocker) 二次开发。随身烹饪及部分注入 / Hook 实现进一步衍生自 [FufuLauncher.UnlockerIsland](https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland)；完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
@@ -23,14 +31,6 @@
 
 ---
 
-## ⚠️ 风险声明
-
-1. 修改或注入游戏客户端可能违反游戏服务条款，并存在**封号**或**其他风险**。
-2. 特征码、Hook 和临时内存补丁会随游戏更新失效，也可能导致崩溃或异常行为。
-3. 本项目仅供学习、研究和本地测试；请自行承担使用风险，**不要**用于正式账号或使用某些功能于公开视频、直播等。
-
----
-
 ## 当前目录结构
 
 ```text
@@ -38,6 +38,7 @@ LiteUnlocker_src/
 ├── LICENSE                         # AGPL-3.0 完整文本
 ├── THIRD_PARTY_NOTICES.md          # 第三方组件与来源说明
 ├── README.md
+├── docs/CHANGELOG.md               # 历史版本与临时修复记录
 ├── SimpleUnlocker.sln              # Visual Studio 解决方案
 ├── Launcher/                       # 启动与 DLL 注入器
 │   ├── Launcher.cpp / Launcher.h
@@ -66,29 +67,7 @@ LiteUnlocker_src/
 
 构建输出 `build/`、`UnlockerGUI/bin/`、`UnlockerGUI/obj/` 均为可再生成文件，已被 Git 忽略，不属于源码。
 
-## 1.1.2 更新
-
-- 在“体验优化”加入幽境 Boss 血量显示及“同时显示最大血量”开关。独立 v141 原型已在游戏内验证；集成版限定于已验证的国服 7.2 单血条场景，其他 Boss 的对应关系仍未确认。
-- 功能默认关闭，配置可热重载。适用范围、读取精度与操作方式见[血量显示说明](docs/README_STYGIAN_HP.md)和[1.1.2 更新说明](RELEASE_NOTES-v1.1.2.md)。
-
-## 1.1.1 更新
-
-- 接入[秘境内奖励来源跳转地图](docs/README_DOMAIN_MAP.md)和[全队技能 CD 显示](docs/README_SKILL_CD.md)。用户已在国服 7.2 完成这两项功能的游戏内验证；其他游戏构建仍受版本校验限制。
-- 增加[主/备选 FPS 挡位与切换快捷键](docs/README_FPS_TOGGLE.md)。快捷键只在游戏窗口前台生效，设置保存在 `Plugins/config.ini`。
-- 完整变更及适用范围见[1.1.1 更新说明](RELEASE_NOTES-v1.1.1.md)。
-
-## 1.1.0 更新
-
-- 对照 FufuLauncher.UnlockerIsland 的 7.2 源码，更新国服和国际服 `SetActive` 偏移及国际服 `EventCamera` 偏移，增加入口校验。
-- 队伍过渡动画改为 7.2 的 `MoveNext` 协程 Hook，保留原生页面就绪判断，只在已就绪时临时缩短动画。
-- 烹饪特征码与 Fufu 7.2 相同。LiteUnlocker 没有针对秘境或挑战主动拦截烹饪热键；本版不改动烹饪逻辑。
-- 详细适配范围和验证状态见 [1.1.0 更新说明](RELEASE_NOTES-v1.1.0.md)。
-
-## 1.0.1 更新
-
-- 修复游戏 7.0 更新后隐藏 UID 失效的问题。
-- 同步原 LiteUnlocker v1.4.0 与 FufuLauncher.UnlockerIsland 的国服/国际服 `SetActive` 偏移。
-- 调用固定偏移前验证可执行内存与函数头；游戏后续更新导致偏移失配时，会安全停用隐藏 UID，而不是调用未知地址。
+版本变更与临时修复见 [更新日志](docs/CHANGELOG.md)。
 
 ## 编译
 

@@ -1,6 +1,9 @@
 name: Publish LiteUnlocker 1.1.2 assets
 
 on:
+  push:
+    tags:
+      - v1.1.2
   workflow_dispatch:
 
 permissions:
@@ -34,6 +37,18 @@ jobs:
           }
           [IO.File]::WriteAllLines((Join-Path 'dist' 'SHA256SUMS.txt'),
                                    [string[]]$lines, [Text.UTF8Encoding]::new($false))
+      - name: Prepare release notes from changelog
+        shell: pwsh
+        run: |
+          $changelog = Get-Content 'docs/CHANGELOG.md' -Raw -Encoding UTF8
+          $section = [regex]::Match($changelog,
+            '(?ms)^## 1\.1\.2 临时修复.*?(?=^## 1\.1\.1)').Value.Trim()
+          if (-not $section) { throw 'Missing 1.1.2 changelog section.' }
+          $section = $section.Replace('](README_STYGIAN_HP.md)',
+            '](https://github.com/Tan90Plays/Genshin_impact-LiteUnlocker/blob/v1.1.2/docs/README_STYGIAN_HP.md)')
+          $body = "# LiteUnlocker 1.1.2`n`n$section`n`n使用风险见 [README](https://github.com/Tan90Plays/Genshin_impact-LiteUnlocker/blob/v1.1.2/README.md)。`n"
+          [IO.File]::WriteAllText((Join-Path 'build' 'release-body.md'),
+            $body, [Text.UTF8Encoding]::new($false))
       - name: Upload assets and publish release
         shell: pwsh
         env:
@@ -42,4 +57,4 @@ jobs:
           gh release upload v1.1.2 dist/LiteUnlocker-v1.1.2-win-x64-self-contained.exe --clobber
           gh release upload v1.1.2 dist/LiteUnlocker-v1.1.2-win-x64.exe --clobber
           gh release upload v1.1.2 dist/SHA256SUMS.txt --clobber
-          gh release edit v1.1.2 --draft=false
+          gh release edit v1.1.2 --notes-file build/release-body.md --draft=false

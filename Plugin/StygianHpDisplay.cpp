@@ -27,6 +27,8 @@ constexpr uintptr_t kRectTransformGetRectRva = 0x1A2271F0;
 constexpr uintptr_t kTransformPointRva = 0x1A22BFE0;
 constexpr uint32_t kTestedRuntimeId = 0x1000000F;
 constexpr uint64_t kPollMs = 100;
+constexpr uint64_t kSampleTimeoutMs = 750;
+constexpr uint64_t kUiHandoffMs = 750;
 constexpr float kLabelWidth = 420.0f;
 constexpr float kLabelHeight = 40.0f;
 constexpr float kLabelGap = 16.0f;
@@ -74,6 +76,7 @@ using ActiveFn = bool (__fastcall*)(void*, void*);
 using GetRectFn = Rect* (__fastcall*)(Rect*, void*, void*);
 using TransformPointFn = Vec3* (__fastcall*)(Vec3*, void*, const Vec3*, void*);
 using CloneTextFn = void* (__fastcall*)(void*, void*, bool, void*);
+using DestroyObjectFn = void (__fastcall*)(void*, void*);
 using StringNewFn = void* (__fastcall*)(const char*);
 using SetBoolFn = void (__fastcall*)(void*, bool, void*);
 using SetIntFn = void (__fastcall*)(void*, int, void*);
@@ -92,6 +95,7 @@ ActiveFn g_activeInHierarchy = nullptr;
 GetRectFn g_getRect = nullptr;
 TransformPointFn g_transformPoint = nullptr;
 CloneTextFn g_cloneText = nullptr;
+DestroyObjectFn g_destroyObject = nullptr;
 StringNewFn g_stringNew = nullptr;
 SetBoolFn g_setActive = nullptr, g_setRaycast = nullptr, g_setEnabled = nullptr, g_setBestFit = nullptr;
 SetIntFn g_setAlignment = nullptr, g_setFontSize = nullptr;
@@ -99,12 +103,14 @@ SetTextFn g_setText = nullptr;
 SetVec2Fn g_setSize = nullptr, g_setAnchorMin = nullptr, g_setAnchorMax = nullptr, g_setPivot = nullptr;
 SetVec3Fn g_setPosition = nullptr, g_setScale = nullptr;
 SetColorFn g_setColor = nullptr;
-std::atomic<bool> g_enabled{false}, g_showMaximum{true}, g_faulted{false};
+std::atomic<bool> g_enabled{false}, g_showMaximum{true};
 std::atomic<const char*> g_note{"disabled by config"};
 std::atomic<uint32_t> g_currentBits{0}, g_maximumBits{0};
 std::atomic<uint64_t> g_lastSample{0}, g_maxChanged{0}, g_lastStorePoll{0};
 bool g_created = false, g_hooksEnabled = false;
+SRWLOCK g_uiLock = SRWLOCK_INIT;
 DWORD g_uiThread = 0;
+uint64_t g_lastUiUpdate = 0;
 
 struct LabelState {
     uintptr_t bar = 0;
@@ -115,7 +121,19 @@ struct LabelState {
     bool positioned = false;
     bool shown = false;
 };
-LabelState g_label{}; // accessed only from MonoCombatBars::UpdateView's UI thread
+LabelState g_label{}; // guarded by g_uiLock
+
+void ResetSamples() {
+    g_currentBits.store(0);
+    g_maximumBits.store(0);
+    g_lastSample.store(0);
+    g_maxChanged.store(0);
+}
+
+void RecordRuntimeFault(const char* note) {
+    ResetSamples();
+    g_note.store(note);
+}
 
 bool ReadExact(uintptr_t address, void* out, size_t bytes) {
     SIZE_T read = 0;
@@ -180,7 +198,7 @@ bool ValidateTargets() {
         !MatchPrefix(kTransformPointRva, kTransformPointPrefix)) return false;
     const auto& p = Patterns::SkillCooldownCN72;
     const Patterns::Method* methods[] = {
-        &p.StringNew, &p.CloneText, &p.GetTransform, &p.GetGameObject,
+        &p.StringNew, &p.CloneText, &p.DestroyObject, &p.GetTransform, &p.GetGameObject,
         &p.SetEnabled, &p.SetActive, &p.SetRaycast, &p.SetScale, &p.SetSize,
         &p.SetPosition, &p.SetAnchorMin, &p.SetAnchorMax, &p.SetPivot,
         &kUiTextSetText, &kUiTextSetColor, &kUiTextSetAlignment,
@@ -196,6 +214,7 @@ bool ValidateTargets() {
     g_getRect = reinterpret_cast<GetRectFn>(g_image + kRectTransformGetRectRva);
     g_transformPoint = reinterpret_cast<TransformPointFn>(g_image + kTransformPointRva);
     g_cloneText = reinterpret_cast<CloneTextFn>(g_image + p.CloneText.rva);
+    g_destroyObject = reinterpret_cast<DestroyObjectFn>(g_image + p.DestroyObject.rva);
     g_stringNew = reinterpret_cast<StringNewFn>(g_image + p.StringNew.rva);
     g_setActive = reinterpret_cast<SetBoolFn>(g_image + p.SetActive.rva);
     g_setRaycast = reinterpret_cast<SetBoolFn>(g_image + p.SetRaycast.rva);
@@ -226,6 +245,25 @@ void HideLabel() {
         if (Alive(gameObject)) g_setActive(gameObject, false, nullptr);
     }
     g_label.shown = false;
+}
+
+void RetireLabel() {
+    if (Alive(g_label.text)) {
+        void* object = g_getGameObject(g_label.text, nullptr);
+        if (Alive(object)) {
+            g_setActive(object, false, nullptr);
+            g_destroyObject(object, nullptr);
+        }
+    }
+    g_label = {};
+}
+
+// Only call while holding g_uiLock. A reset retires the old cloned label and
+// lets the next valid sample select the current UI callback thread again.
+void ResetUiState() {
+    RetireLabel();
+    g_uiThread = 0;
+    g_lastUiUpdate = 0;
 }
 
 void* FindTextSource(uintptr_t bar) {
@@ -288,30 +326,40 @@ void FormatHp(char (&output)[64], float value) {
 }
 
 void UpdateLabel(uintptr_t bar, uintptr_t parent, const Rect& rect, bool active) {
-    if (g_faulted.load()) return;
+    const uint64_t now = GetTickCount64();
     const DWORD thread = GetCurrentThreadId();
-    if (!g_uiThread) g_uiThread = thread;
-    if (thread != g_uiThread) return;
-    if (bar != g_label.bar) {
-        HideLabel();
-        g_label = {};
-        g_label.bar = bar;
+    if (g_uiThread && thread != g_uiThread) {
+        if (now - g_lastUiUpdate <= kUiHandoffMs) return;
+        ResetUiState();
     }
-    if (!g_enabled.load() || !active ||
+    if (!active ||
         rect.width < 600 || rect.width > 760 ||
         rect.height < 10 || rect.height > 25) {
-        HideLabel();
+        if (g_uiThread == thread) HideLabel();
         return;
     }
-    const uint64_t now = GetTickCount64();
-    if (now - g_label.lastRefresh < kPollMs) return;
-    g_label.lastRefresh = now;
     const uint64_t sampled = g_lastSample.load();
     const uint64_t maxChanged = g_maxChanged.load();
-    if (!sampled || now - sampled > 750 || !maxChanged || now - maxChanged < 500) {
-        HideLabel();
+    if (!sampled || now - sampled > kSampleTimeoutMs ||
+        !maxChanged || now - maxChanged < 500) {
+        if (sampled && now - sampled > kSampleTimeoutMs) {
+            ResetUiState();
+            ResetSamples();
+        } else if (g_uiThread == thread) {
+            HideLabel();
+        }
         return;
     }
+    if (!g_uiThread) g_uiThread = thread;
+    if (bar != g_label.bar) {
+        RetireLabel();
+        g_label.bar = bar;
+    }
+    if (now - g_label.lastRefresh < kPollMs) {
+        if (g_label.shown) g_lastUiUpdate = now;
+        return;
+    }
+    g_label.lastRefresh = now;
     float current = 0, maximum = 0;
     const uint32_t currentBits = g_currentBits.load(), maximumBits = g_maximumBits.load();
     std::memcpy(&current, &currentBits, sizeof(current));
@@ -358,6 +406,10 @@ void UpdateLabel(uintptr_t bar, uintptr_t parent, const Rect& rect, bool active)
             g_label.shown = true;
         }
     }
+    if (g_label.shown) {
+        g_lastUiUpdate = now;
+        g_note.store("CN 7.2 first-room single boss HP display active");
+    }
 }
 
 void SampleStore() {
@@ -384,45 +436,67 @@ void SampleStore() {
 
 void* __fastcall HookGetValidEntity(void* manager, uint32_t runtimeId, uint64_t checkActive) {
     void* entity = g_originalEntity(manager, runtimeId, checkActive);
-    if (entity && runtimeId == kTestedRuntimeId && g_enabled.load() && !g_faulted.load()) {
+    if (entity && runtimeId == kTestedRuntimeId && g_enabled.load()) {
         __try { SampleStore(); }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            g_faulted.store(true);
-            g_enabled.store(false);
-            g_note.store("HP read fault; feature stopped");
+            RecordRuntimeFault("HP read fault; waiting for next entity query");
         }
     }
     return entity;
 }
 
+void ProcessCombatBarUpdateUnsafe(void* object) {
+    if (!g_enabled.load()) {
+        if (g_label.text || g_uiThread) ResetUiState();
+        return;
+    }
+    const uint64_t sampled = g_lastSample.load();
+    if (sampled && GetTickCount64() - sampled > kSampleTimeoutMs) {
+        ResetUiState();
+        ResetSamples();
+        return;
+    }
+    uintptr_t hpBar = 0;
+    if (!ReadExact(reinterpret_cast<uintptr_t>(object) + 0x18, &hpBar, sizeof(hpBar)) ||
+        !Alive(reinterpret_cast<void*>(hpBar))) return;
+    void* transform = g_getTransform(reinterpret_cast<void*>(hpBar), nullptr);
+    void* gameObject = g_getGameObject(reinterpret_cast<void*>(hpBar), nullptr);
+    if (!Alive(transform) || !Alive(gameObject)) return;
+    Rect rect{};
+    g_getRect(&rect, transform, nullptr);
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) ||
+        !std::isfinite(rect.width) || !std::isfinite(rect.height)) return;
+    UpdateLabel(reinterpret_cast<uintptr_t>(object), reinterpret_cast<uintptr_t>(transform),
+                rect, g_activeInHierarchy(gameObject, nullptr));
+}
+
+void ProcessCombatBarUpdate(void* object) {
+    if (!TryAcquireSRWLockExclusive(&g_uiLock)) return;
+    __try { ProcessCombatBarUpdateUnsafe(object); }
+    __finally { ReleaseSRWLockExclusive(&g_uiLock); }
+}
+
+void ResetUiAfterFaultUnsafe() {
+    __try { RetireLabel(); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { /* The old native UI object may be gone. */ }
+    g_label = {};
+    g_uiThread = 0;
+    g_lastUiUpdate = 0;
+}
+
+void ResetUiAfterFault() {
+    if (!TryAcquireSRWLockExclusive(&g_uiLock)) return;
+    __try { ResetUiAfterFaultUnsafe(); }
+    __finally { ReleaseSRWLockExclusive(&g_uiLock); }
+}
+
 void __fastcall HookCombatBarUpdate(void* object, void* methodInfo) {
     g_originalBarUpdate(object, methodInfo);
     if (!object) return;
-    if (g_faulted.load()) {
-        __try { HideLabel(); }
-        __except (EXCEPTION_EXECUTE_HANDLER) { /* Feature remains stopped. */ }
-        return;
-    }
-    if (!g_enabled.load() && !g_label.shown) return;
-    __try {
-        uintptr_t hpBar = 0;
-        if (!ReadExact(reinterpret_cast<uintptr_t>(object) + 0x18, &hpBar, sizeof(hpBar)) ||
-            !Alive(reinterpret_cast<void*>(hpBar))) return;
-        void* transform = g_getTransform(reinterpret_cast<void*>(hpBar), nullptr);
-        void* gameObject = g_getGameObject(reinterpret_cast<void*>(hpBar), nullptr);
-        if (!Alive(transform) || !Alive(gameObject)) return;
-        Rect rect{};
-        g_getRect(&rect, transform, nullptr);
-        if (!std::isfinite(rect.x) || !std::isfinite(rect.y) ||
-            !std::isfinite(rect.width) || !std::isfinite(rect.height)) return;
-        UpdateLabel(reinterpret_cast<uintptr_t>(object), reinterpret_cast<uintptr_t>(transform),
-                    rect, g_activeInHierarchy(gameObject, nullptr));
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        g_faulted.store(true);
-        g_enabled.store(false);
-        __try { HideLabel(); }
-        __except (EXCEPTION_EXECUTE_HANDLER) { /* Avoid a second UI fault. */ }
-        g_note.store("native UI fault; feature stopped");
+    __try { ProcessCombatBarUpdate(object); }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        RecordRuntimeFault("native UI fault; waiting for next entity query");
+        ResetUiAfterFault();
     }
 }
 
@@ -457,10 +531,10 @@ bool SetEnabled(bool enabled, bool showMaximum) {
     g_showMaximum.store(showMaximum);
     if (!enabled) {
         g_enabled.store(false);
+        ResetSamples();
         g_note.store("disabled by config");
         return true;
     }
-    if (g_faulted.load()) return false;
     if (!g_created && !CreateHooks()) return false;
     if (!g_hooksEnabled) {
         void* entityTarget = reinterpret_cast<void*>(g_image + kGetValidEntityRva);
@@ -477,11 +551,9 @@ bool SetEnabled(bool enabled, bool showMaximum) {
         g_hooksEnabled = true;
     }
     if (!g_enabled.exchange(true)) {
-        g_lastSample.store(0);
-        g_maxChanged.store(0);
-        g_maximumBits.store(0);
+        ResetSamples();
+        g_note.store("CN 7.2 first-room single boss HP display active");
     }
-    g_note.store("CN 7.2 first-room single boss HP display active");
     return true;
 }
 } // namespace StygianHpDisplay
